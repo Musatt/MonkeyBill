@@ -294,6 +294,7 @@ function buildSeedData() {
         groupId,
         name: "822軒銘家",
         description: "",
+        date: "2026-08-22",
         memberIds: projectMemberIds,
         baseCurrency: "TWD",
         settlementDecimals: 0,
@@ -421,6 +422,28 @@ function TopBar({ title, subtitle, onBack }) {
 function Bar({ pct, color }) {
     return (React.createElement("div", { className: "bar-track" },
         React.createElement("div", { className: "bar-fill", style: { width: `${Math.max(0, Math.min(100, pct))}%`, background: color } })));
+}
+function DatePickerBox({ value, onChange }) {
+    const [y, m, d] = value.split("-").map((v) => parseInt(v, 10));
+    const thisYear = new Date().getFullYear();
+    const years = Array.from({ length: 4 }, (_, i) => thisYear - 1 + i);
+    const months = Array.from({ length: 12 }, (_, i) => i + 1);
+    const daysInMonth = (yy, mm) => new Date(yy, mm, 0).getDate();
+    const days = Array.from({ length: daysInMonth(y, m) }, (_, i) => i + 1);
+    const setPart = (ny, nm, nd) => {
+        const maxDay = daysInMonth(ny, nm);
+        onChange(`${ny}-${String(nm).padStart(2, "0")}-${String(Math.min(nd, maxDay)).padStart(2, "0")}`);
+    };
+    return (React.createElement("div", { className: "picker-box" },
+        React.createElement("select", { value: y, onChange: (e) => setPart(parseInt(e.target.value, 10), m, d) }, years.map((yy) => React.createElement("option", { key: yy, value: yy },
+            yy,
+            "\u5E74"))),
+        React.createElement("select", { value: m, onChange: (e) => setPart(y, parseInt(e.target.value, 10), d) }, months.map((mm) => React.createElement("option", { key: mm, value: mm },
+            mm,
+            "\u6708"))),
+        React.createElement("select", { value: d, onChange: (e) => setPart(y, m, parseInt(e.target.value, 10)) }, days.map((dd) => React.createElement("option", { key: dd, value: dd },
+            dd,
+            "\u65E5")))));
 }
 /* ============================================================
    GROUP LOCK — password gate
@@ -606,11 +629,12 @@ function Home({ groups, onOpenGroup, onCreateGroup, data, onRestore, onRefresh }
 /* ============================================================
    GROUP PAGE — members + projects
    ============================================================ */
-function GroupPage({ group, projects, myId, onBack, onOpenProject, onCreateProject, onAddMember, onOpenMember, onUpdateGroup, onSwitchIdentity, onSetPassword, onRemovePassword }) {
+function GroupPage({ group, projects, expenses, myId, onBack, onOpenProject, onCreateProject, onAddMember, onOpenMember, onUpdateGroup, onSwitchIdentity, onSetPassword, onRemovePassword }) {
     const activeMembers = group.members.filter((m) => !m.deleted);
     const [showNew, setShowNew] = useState(false);
     const [pname, setPname] = useState("");
     const [pdesc, setPdesc] = useState("");
+    const [pdate, setPdate] = useState(() => todayStr());
     const [selected, setSelected] = useState(() => new Set(activeMembers.map((m) => m.id)));
     const [currency, setCurrency] = useState("TWD");
     const [settlementDecimals, setSettlementDecimals] = useState(0);
@@ -640,6 +664,7 @@ function GroupPage({ group, projects, myId, onBack, onOpenProject, onCreateProje
     };
     const me = group.members.find((m) => m.id === myId);
     const newMemberDuplicate = newMemberName.trim() && nameExists(group.members, newMemberName);
+    const sortedProjects = [...projects].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
     return (React.createElement("div", { className: "screen" },
         editingGroup ? (React.createElement("div", { className: "card", style: { marginBottom: 12 } },
             React.createElement("div", { className: "section-label" }, "\u7FA4\u7D44\u540D\u7A31"),
@@ -715,13 +740,22 @@ function GroupPage({ group, projects, myId, onBack, onOpenProject, onCreateProje
             newMemberDuplicate && React.createElement("div", { className: "hint-text hint-warn" }, "\u5DF2\u7D93\u6709\u76F8\u540C\u540D\u5B57\u7684\u6210\u54E1\u4E86"))),
         React.createElement("div", { className: "section-label", style: { marginTop: 20 } }, "\u5C08\u6848"),
         React.createElement("div", { className: "list-stack" },
-            projects.map((p) => (React.createElement("button", { key: p.id, className: "project-card", onClick: () => onOpenProject(p.id) },
-                React.createElement("div", { className: "project-card-name" }, p.name),
-                p.description && React.createElement("div", { className: "card-desc" }, p.description),
-                React.createElement("div", { className: "project-card-meta" },
-                    p.memberIds.length,
-                    " \u4EBA \u00B7 \u4E3B\u5E63\u5225 ",
-                    p.baseCurrency)))),
+            sortedProjects.map((p) => {
+                const projectExpenses = expenses.filter((e) => e.projectId === p.id);
+                const settled = projectExpenses.length === 0 ||
+                    Object.values(reconcileBalances(computeBalances(p.memberIds, projectExpenses), p.settlementDecimals ?? 0)).every((v) => Math.abs(v) < 0.005);
+                return (React.createElement("button", { key: p.id, className: "project-card", onClick: () => onOpenProject(p.id) },
+                    React.createElement("div", { className: "project-card-top" },
+                        React.createElement("div", { className: "project-card-name" }, p.name),
+                        React.createElement("span", { className: "settle-badge" + (settled ? " settled" : "") }, settled ? "已結清" : "未結清")),
+                    p.description && React.createElement("div", { className: "card-desc" }, p.description),
+                    React.createElement("div", { className: "project-card-meta" },
+                        p.date || "—",
+                        " \u00B7 ",
+                        p.memberIds.length,
+                        " \u4EBA \u00B7 \u4E3B\u5E63\u5225 ",
+                        p.baseCurrency)));
+            }),
             projects.length === 0 && React.createElement("div", { className: "empty-hint" }, "\u9084\u6C92\u6709\u5C08\u6848")),
         !showNew ? (React.createElement("button", { className: "btn-outline full-width", style: { marginTop: 16 }, onClick: () => {
                 setSelected(new Set(activeMembers.map((m) => m.id)));
@@ -731,6 +765,8 @@ function GroupPage({ group, projects, myId, onBack, onOpenProject, onCreateProje
             React.createElement("input", { className: "input", value: pname, onChange: (e) => setPname(e.target.value), placeholder: "\u4F8B\u5982\uFF1A822\u8ED2\u9298\u5BB6" }),
             React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u8AAA\u660E(\u9078\u586B)"),
             React.createElement("textarea", { className: "input textarea", value: pdesc, onChange: (e) => setPdesc(e.target.value), placeholder: "\u9019\u500B\u5C08\u6848\u662F\u505A\u4EC0\u9EBC\u7528\u7684" }),
+            React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u5C08\u6848\u65E5\u671F"),
+            React.createElement(DatePickerBox, { value: pdate, onChange: setPdate }),
             React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u53C3\u52A0\u6210\u54E1"),
             React.createElement("div", { className: "member-chip-row" }, activeMembers.map((m) => (React.createElement("button", { key: m.id, className: "member-tag selectable" + (selected.has(m.id) ? " member-tag-on" : ""), onClick: () => toggle(m.id) }, m.name)))),
             React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u4E3B\u5E63\u5225"),
@@ -743,16 +779,17 @@ function GroupPage({ group, projects, myId, onBack, onOpenProject, onCreateProje
             React.createElement("div", { className: "row-form", style: { marginTop: 12 } },
                 React.createElement("button", { className: "btn-ghost", onClick: () => setShowNew(false) }, "\u53D6\u6D88"),
                 React.createElement("button", { className: "btn-accent", disabled: !pname.trim() || selected.size === 0, onClick: () => {
-                        onCreateProject(pname.trim(), pdesc.trim(), Array.from(selected), currency, settlementDecimals);
+                        onCreateProject(pname.trim(), pdesc.trim(), Array.from(selected), currency, settlementDecimals, pdate);
                         setShowNew(false);
                         setPname("");
                         setPdesc("");
+                        setPdate(todayStr());
                     } }, "\u5EFA\u7ACB\u5C08\u6848"))))));
 }
 /* ============================================================
    MEMBER DETAIL PAGE
    ============================================================ */
-function MemberDetailPage({ member, groupName, groupMembers, onBack, onUpdate, onDelete }) {
+function MemberDetailPage({ member, groupName, groupMembers, projects, expenses, onBack, onUpdate, onDelete }) {
     const [editing, setEditing] = useState(false);
     const [name, setName] = useState(member.name);
     const [phone, setPhone] = useState(member.phone || "");
@@ -765,8 +802,49 @@ function MemberDetailPage({ member, groupName, groupMembers, onBack, onUpdate, o
         setEditing(true);
     };
     const duplicate = name.trim() && nameExists(groupMembers, name, member.id);
+    const projectBalances = useMemo(() => {
+        const results = [];
+        projects.forEach((project) => {
+            const projectExpenses = expenses.filter((e) => e.projectId === project.id);
+            if (projectExpenses.length === 0)
+                return;
+            const memberIdsForCalc = [...new Set([...project.memberIds, member.id])];
+            const rawBalances = computeBalances(memberIdsForCalc, projectExpenses);
+            const decimals = project.settlementDecimals ?? 0;
+            const reconciled = reconcileBalances(rawBalances, decimals);
+            const bal = reconciled[member.id] || 0;
+            if (Math.abs(bal) > 0.005) {
+                results.push({ project, balance: bal, decimals });
+            }
+        });
+        return results;
+    }, [projects, expenses, member.id]);
+    const totalsByCurrency = useMemo(() => {
+        const totals = {};
+        projectBalances.forEach(({ project, balance }) => {
+            totals[project.baseCurrency] = (totals[project.baseCurrency] || 0) + balance;
+        });
+        return totals;
+    }, [projectBalances]);
     return (React.createElement("div", { className: "screen" },
         React.createElement(TopBar, { title: member.name, subtitle: groupName, onBack: onBack }),
+        !editing && (React.createElement(React.Fragment, null,
+            React.createElement("div", { className: "section-label" }, "\u6240\u6709\u5C08\u6848\u5408\u8A08\u6DE8\u984D"),
+            projectBalances.length === 0 ? (React.createElement("div", { className: "empty-hint" }, "\u76EE\u524D\u6C92\u6709\u672A\u7D50\u6E05\u7684\u5C08\u6848")) : (React.createElement(React.Fragment, null,
+                React.createElement("div", { className: "list-stack", style: { marginBottom: 12 } }, Object.entries(totalsByCurrency).map(([cur, amt]) => (React.createElement("div", { key: cur, className: "balance-row" },
+                    React.createElement("span", null,
+                        cur,
+                        " \u5408\u8A08"),
+                    React.createElement("span", { className: "mono" + (amt > 0.005 ? " text-pos" : amt < -0.005 ? " text-neg" : "") },
+                        amt > 0 ? "+" : "",
+                        formatMoney(amt, cur)))))),
+                React.createElement("div", { className: "section-label" }, "\u672A\u7D50\u6E05\u5C08\u6848\u660E\u7D30"),
+                React.createElement("div", { className: "list-stack", style: { marginBottom: 16 } }, projectBalances.map(({ project, balance, decimals }) => (React.createElement("div", { key: project.id, className: "related-item-row" },
+                    React.createElement("div", { className: "related-item-main" },
+                        React.createElement("span", { className: "related-item-note" }, project.name),
+                        React.createElement("span", { className: "mono related-item-amount" + (balance > 0 ? " text-pos" : " text-neg") },
+                            balance > 0 ? "+" : "",
+                            formatMoney(balance, project.baseCurrency, decimals))))))))))),
         editing ? (React.createElement("div", { className: "card" },
             React.createElement("div", { className: "section-label" }, "\u59D3\u540D"),
             React.createElement("input", { className: "input", value: name, onChange: (e) => setName(e.target.value) }),
@@ -946,17 +1024,6 @@ function AddExpenseForm({ project, allMembers, initialValues, isEdit, onSave, on
     };
     const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
     const minutes = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
-    const [dy, dm, dd] = date.split("-").map((v) => parseInt(v, 10));
-    const thisYear = new Date().getFullYear();
-    const years = Array.from({ length: 4 }, (_, i) => thisYear - 1 + i);
-    const months = Array.from({ length: 12 }, (_, i) => i + 1);
-    const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
-    const days = Array.from({ length: daysInMonth(dy, dm) }, (_, i) => i + 1);
-    const setDatePart = (y, m, d) => {
-        const maxDay = daysInMonth(y, m);
-        const clampedD = Math.min(d, maxDay);
-        setDate(`${y}-${String(m).padStart(2, "0")}-${String(clampedD).padStart(2, "0")}`);
-    };
     const payerLabel = itemType === "collection" ? "收款人" : "付款人";
     const payerModeLabels = itemType === "collection" ? ["單一收款人", "多人共同收款"] : ["單一付款人", "多人共同支出"];
     const splitLabel = itemType === "collection" ? "收款方式(誰收多少)" : "分帳方式";
@@ -1032,16 +1099,7 @@ function AddExpenseForm({ project, allMembers, initialValues, isEdit, onSave, on
         React.createElement("div", { className: "row-2" },
             React.createElement("div", { style: { flex: 1.2 } },
                 React.createElement("div", { className: "section-label" }, "\u65E5\u671F"),
-                React.createElement("div", { className: "picker-box" },
-                    React.createElement("select", { value: dy, onChange: (e) => setDatePart(parseInt(e.target.value, 10), dm, dd) }, years.map((y) => React.createElement("option", { key: y, value: y },
-                        y,
-                        "\u5E74"))),
-                    React.createElement("select", { value: dm, onChange: (e) => setDatePart(dy, parseInt(e.target.value, 10), dd) }, months.map((m) => React.createElement("option", { key: m, value: m },
-                        m,
-                        "\u6708"))),
-                    React.createElement("select", { value: dd, onChange: (e) => setDatePart(dy, dm, parseInt(e.target.value, 10)) }, days.map((d) => React.createElement("option", { key: d, value: d },
-                        d,
-                        "\u65E5"))))),
+                React.createElement(DatePickerBox, { value: date, onChange: setDate })),
             React.createElement("div", { style: { flex: 1 } },
                 React.createElement("div", { className: "section-label" }, "\u6642\u9593 (24\u5C0F\u6642\u5236)"),
                 React.createElement("div", { className: "picker-box" },
@@ -1427,6 +1485,7 @@ function ProjectView({ group, project, expenses, membersById, myId, onSwitchIden
     const [pname, setPname] = useState(project.name);
     const [pdesc, setPdesc] = useState(project.description || "");
     const [pdecimals, setPdecimals] = useState(project.settlementDecimals ?? 0);
+    const [pdate, setPdate] = useState(project.date || todayStr());
     const [syncing, setSyncing] = useState(false);
     const handleRefresh = async () => {
         setSyncing(true);
@@ -1437,6 +1496,7 @@ function ProjectView({ group, project, expenses, membersById, myId, onSwitchIden
         setPname(project.name);
         setPdesc(project.description || "");
         setPdecimals(project.settlementDecimals ?? 0);
+        setPdate(project.date || todayStr());
         setEditingProject(true);
     };
     const duplicateItem = (id) => {
@@ -1471,6 +1531,8 @@ function ProjectView({ group, project, expenses, membersById, myId, onSwitchIden
             React.createElement("input", { className: "input", value: pname, onChange: (e) => setPname(e.target.value) }),
             React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u8AAA\u660E"),
             React.createElement("textarea", { className: "input textarea", value: pdesc, onChange: (e) => setPdesc(e.target.value), placeholder: "\u9019\u500B\u5C08\u6848\u662F\u505A\u4EC0\u9EBC\u7528\u7684" }),
+            React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u5C08\u6848\u65E5\u671F"),
+            React.createElement(DatePickerBox, { value: pdate, onChange: setPdate }),
             React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u7D50\u7B97\u8A08\u7B97\u4F4D\u6578"),
             React.createElement("div", { className: "mode-switch mode-switch-3" },
                 React.createElement("button", { className: pdecimals === 0 ? "on" : "", onClick: () => setPdecimals(0) }, "\u6574\u6578"),
@@ -1479,7 +1541,7 @@ function ProjectView({ group, project, expenses, membersById, myId, onSwitchIden
             React.createElement("div", { className: "row-form", style: { marginTop: 12 } },
                 React.createElement("button", { className: "btn-ghost", onClick: () => setEditingProject(false) }, "\u53D6\u6D88"),
                 React.createElement("button", { className: "btn-accent", disabled: !pname.trim(), onClick: () => {
-                        actions.updateProject(pname.trim(), pdesc.trim(), pdecimals);
+                        actions.updateProject(pname.trim(), pdesc.trim(), pdecimals, pdate);
                         setEditingProject(false);
                     } }, "\u5132\u5B58")))) : (React.createElement("div", { className: "topbar" },
             React.createElement("button", { className: "backbtn", onClick: headerBack, "aria-label": "\u8FD4\u56DE" }, "\u2039"),
@@ -1546,6 +1608,10 @@ function App() {
     const membersById = currentGroup ? Object.fromEntries(currentGroup.members.map((m) => [m.id, m])) : {};
     const expensesOfProject = currentProject
         ? Object.values(data.expenses).filter((e) => e.projectId === currentProject.id)
+        : [];
+    const projectIdsOfGroup = new Set(projectsOfGroup.map((p) => p.id));
+    const expensesOfGroup = currentGroup
+        ? Object.values(data.expenses).filter((e) => projectIdsOfGroup.has(e.projectId))
         : [];
     const currentMember = currentGroup && nav.memberId ? membersById[nav.memberId] : null;
     const myId = currentGroup ? identity[currentGroup.id] : null;
@@ -1633,7 +1699,7 @@ function App() {
             return next;
         });
     };
-    const createProject = (name, description, memberIds, baseCurrency, settlementDecimals) => {
+    const createProject = (name, description, memberIds, baseCurrency, settlementDecimals, date) => {
         const projectId = uid("p");
         persist((prev) => ({
             ...prev,
@@ -1644,6 +1710,7 @@ function App() {
                     groupId: currentGroup.id,
                     name,
                     description,
+                    date: date || todayStr(),
                     memberIds,
                     baseCurrency,
                     settlementDecimals,
@@ -1656,10 +1723,10 @@ function App() {
         setNav({ screen: "project", groupId: currentGroup.id, projectId, memberId: null });
         setProjectTab("expenses");
     };
-    const updateProject = (name, description, settlementDecimals) => {
+    const updateProject = (name, description, settlementDecimals, date) => {
         persist((prev) => {
             const p = prev.projects[currentProject.id];
-            return { ...prev, projects: { ...prev.projects, [currentProject.id]: { ...p, name, description, settlementDecimals } } };
+            return { ...prev, projects: { ...prev.projects, [currentProject.id]: { ...p, name, description, settlementDecimals, date } } };
         });
     };
     const toggleProjectMember = (memberId, on) => {
@@ -1711,7 +1778,7 @@ function App() {
             content = (React.createElement(Onboarding, { group: currentGroup, onPick: handleOnboardPick, onBack: () => setNav({ screen: "home", groupId: null, projectId: null, memberId: null }) }));
         }
         else {
-            content = (React.createElement(GroupPage, { group: currentGroup, projects: projectsOfGroup, myId: myId, onBack: () => setNav({ screen: "home", groupId: null, projectId: null, memberId: null }), onOpenProject: (id) => {
+            content = (React.createElement(GroupPage, { group: currentGroup, projects: projectsOfGroup, expenses: expensesOfGroup, myId: myId, onBack: () => setNav({ screen: "home", groupId: null, projectId: null, memberId: null }), onOpenProject: (id) => {
                     setNav({ screen: "project", groupId: currentGroup.id, projectId: id, memberId: null });
                     setProjectTab("expenses");
                     setExpenseEditor(null);
@@ -1719,7 +1786,7 @@ function App() {
         }
     }
     else if (nav.screen === "member" && currentGroup && currentMember) {
-        content = (React.createElement(MemberDetailPage, { member: currentMember, groupName: currentGroup.name, groupMembers: currentGroup.members, onBack: () => setNav({ screen: "group", groupId: currentGroup.id, projectId: null, memberId: null }), onUpdate: (updates) => updateMember(currentGroup.id, currentMember.id, updates), onDelete: () => {
+        content = (React.createElement(MemberDetailPage, { member: currentMember, groupName: currentGroup.name, groupMembers: currentGroup.members, projects: projectsOfGroup, expenses: expensesOfGroup, onBack: () => setNav({ screen: "group", groupId: currentGroup.id, projectId: null, memberId: null }), onUpdate: (updates) => updateMember(currentGroup.id, currentMember.id, updates), onDelete: () => {
                 deleteMember(currentGroup.id, currentMember.id);
                 setNav({ screen: "group", groupId: currentGroup.id, projectId: null, memberId: null });
             } }));
@@ -1812,6 +1879,13 @@ const CSS = `
 }
 .group-card-name, .project-card-name { font-weight: 700; font-size: 16px; font-family: 'Space Grotesk', sans-serif; }
 .group-card-meta, .project-card-meta { color: var(--text-dim); font-size: 12px; }
+
+.project-card-top { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.settle-badge {
+  font-size: 11px; font-weight: 700; padding: 3px 9px; border-radius: 999px; flex-shrink: 0;
+  background: color-mix(in srgb, var(--accent) 18%, var(--surface-2)); color: var(--accent); border: 1px solid var(--accent);
+}
+.settle-badge.settled { background: color-mix(in srgb, var(--positive) 18%, var(--surface-2)); color: var(--positive); border-color: var(--positive); }
 
 .empty-hint { color: var(--text-dim); font-size: 13px; padding: 14px; text-align: center; border: 1px dashed var(--border); border-radius: var(--radius); }
 

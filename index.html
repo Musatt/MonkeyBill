@@ -56,7 +56,7 @@ const CATEGORIES = [
     { id: "other", label: "其他", color: "#9AA3AF" },
 ];
 const CURRENCY_DECIMALS = { TWD: 0, JPY: 0, USD: 2, EUR: 2, KRW: 0, CNY: 2, HKD: 2, GBP: 2 };
-const CURRENCY_LIST = ["TWD", "JPY", "USD", "EUR", "KRW", "CNY", "HKD", "GBP"];
+const CURRENCY_LIST = ["TWD", "JPY", "USD", "EUR"];
 function decimalsOf(cur) {
     return CURRENCY_DECIMALS[cur] !== undefined ? CURRENCY_DECIMALS[cur] : 2;
 }
@@ -264,7 +264,7 @@ function oneCollectorSettlement(balances, collectorId, decimals) {
 function buildSeedData() {
     const groupId = uid("g");
     const names = ["猴子", "昭毅", "小比", "軒銘", "德濬", "彥廷", "子謙", "阿愷", "正傑"];
-    const members = names.map((name) => ({ id: uid("mem"), name, phone: "", bankAccount: "" }));
+    const members = names.map((name) => ({ id: uid("mem"), name, phone: "", bankCode: "", bankAccount: "", otherPayment: "" }));
     const byName = Object.fromEntries(members.map((m) => [m.name, m.id]));
     const projectId = uid("p");
     const projectMemberIds = members.filter((m) => m.name !== "正傑").map((m) => m.id);
@@ -444,6 +444,24 @@ function DatePickerBox({ value, onChange }) {
         React.createElement("select", { value: d, onChange: (e) => setPart(y, m, parseInt(e.target.value, 10)) }, days.map((dd) => React.createElement("option", { key: dd, value: dd },
             dd,
             "\u65E5")))));
+}
+function CurrencySelect({ value, onChange }) {
+    const isPreset = CURRENCY_LIST.includes(value);
+    const [showCustom, setShowCustom] = useState(!isPreset);
+    return (React.createElement(React.Fragment, null,
+        React.createElement("select", { className: "input", value: showCustom ? "__custom__" : value, onChange: (e) => {
+                if (e.target.value === "__custom__") {
+                    setShowCustom(true);
+                    onChange("");
+                }
+                else {
+                    setShowCustom(false);
+                    onChange(e.target.value);
+                }
+            } },
+            CURRENCY_LIST.map((c) => (React.createElement("option", { key: c, value: c }, c))),
+            React.createElement("option", { value: "__custom__" }, "\u81EA\u8A02")),
+        showCustom && (React.createElement("input", { className: "input mono", style: { marginTop: 8 }, placeholder: "\u8F38\u5165\u5E63\u5225\u4EE3\u78BC\uFF0C\u4F8B\u5982 THB", value: value, onChange: (e) => onChange(e.target.value.toUpperCase()), maxLength: 10 }))));
 }
 /* ============================================================
    GROUP LOCK — password gate
@@ -629,7 +647,7 @@ function Home({ groups, onOpenGroup, onCreateGroup, data, onRestore, onRefresh }
 /* ============================================================
    GROUP PAGE — members + projects
    ============================================================ */
-function GroupPage({ group, projects, expenses, myId, onBack, onOpenProject, onCreateProject, onAddMember, onOpenMember, onUpdateGroup, onSwitchIdentity, onSetPassword, onRemovePassword }) {
+function GroupPage({ group, projects, expenses, myId, onBack, onOpenProject, onCreateProject, onAddMember, onOpenMember, onUpdateGroup, onSwitchIdentity, onSetPassword, onRemovePassword, onDeleteGroup }) {
     const activeMembers = group.members.filter((m) => !m.deleted);
     const [showNew, setShowNew] = useState(false);
     const [pname, setPname] = useState("");
@@ -648,6 +666,9 @@ function GroupPage({ group, projects, expenses, myId, onBack, onOpenProject, onC
     const [pw2, setPw2] = useState("");
     const [pwCheck, setPwCheck] = useState("");
     const [pwCheckError, setPwCheckError] = useState(false);
+    const [confirmingGroupDelete, setConfirmingGroupDelete] = useState(false);
+    const [groupDeletePw, setGroupDeletePw] = useState("");
+    const [groupDeletePwError, setGroupDeletePwError] = useState(false);
     const resetPwState = () => {
         setPwMode("view");
         setPw1("");
@@ -709,7 +730,22 @@ function GroupPage({ group, projects, expenses, myId, onBack, onOpenProject, onC
                 React.createElement("button", { className: "btn-accent", disabled: !gname.trim(), onClick: () => {
                         onUpdateGroup(gname.trim(), gdesc.trim());
                         setEditingGroup(false);
-                    } }, "\u5132\u5B58")))) : (React.createElement("div", { className: "topbar" },
+                    } }, "\u5132\u5B58")),
+            React.createElement("div", { className: "section-label", style: { marginTop: 20 } }, "\u522A\u9664\u7FA4\u7D44"),
+            !confirmingGroupDelete ? (React.createElement("button", { className: "btn-outline full-width", style: { borderColor: "var(--accent)", color: "var(--accent)" }, onClick: () => setConfirmingGroupDelete(true) }, "\u522A\u9664\u7FA4\u7D44")) : (React.createElement("div", { className: "card subtle" },
+                React.createElement("div", { className: "hint-text" }, "\u522A\u9664\u7FA4\u7D44\u6703\u4E00\u4F75\u522A\u9664\u5E95\u4E0B\u6240\u6709\u5C08\u6848\u8207\u9805\u76EE\uFF0C\u4E14\u7121\u6CD5\u5FA9\u539F\u3002\u8ACB\u8F38\u5165\u842C\u80FD\u5BC6\u78BC\u78BA\u8A8D\u3002"),
+                React.createElement("input", { className: "input mono", type: "password", inputMode: "numeric", value: groupDeletePw, onChange: (e) => { setGroupDeletePw(e.target.value); setGroupDeletePwError(false); }, placeholder: "\u842C\u80FD\u5BC6\u78BC", style: { marginTop: 8 } }),
+                groupDeletePwError && React.createElement("div", { className: "hint-text hint-warn" }, "\u5BC6\u78BC\u4E0D\u6B63\u78BA"),
+                React.createElement("div", { className: "row-form", style: { marginTop: 8 } },
+                    React.createElement("button", { className: "btn-ghost", onClick: () => { setConfirmingGroupDelete(false); setGroupDeletePw(""); setGroupDeletePwError(false); } }, "\u53D6\u6D88"),
+                    React.createElement("button", { className: "btn-accent", onClick: () => {
+                            if (groupDeletePw === MASTER_PASSWORD) {
+                                onDeleteGroup();
+                            }
+                            else {
+                                setGroupDeletePwError(true);
+                            }
+                        } }, "\u78BA\u5B9A\u522A\u9664\u7FA4\u7D44")))))) : (React.createElement("div", { className: "topbar" },
             React.createElement("button", { className: "backbtn", onClick: onBack, "aria-label": "\u8FD4\u56DE" }, "\u2039"),
             React.createElement("div", { className: "topbar-text" },
                 React.createElement("div", { className: "topbar-title" },
@@ -770,7 +806,7 @@ function GroupPage({ group, projects, expenses, myId, onBack, onOpenProject, onC
             React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u53C3\u52A0\u6210\u54E1"),
             React.createElement("div", { className: "member-chip-row" }, activeMembers.map((m) => (React.createElement("button", { key: m.id, className: "member-tag selectable" + (selected.has(m.id) ? " member-tag-on" : ""), onClick: () => toggle(m.id) }, m.name)))),
             React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u4E3B\u5E63\u5225"),
-            React.createElement("select", { className: "input", value: currency, onChange: (e) => setCurrency(e.target.value) }, CURRENCY_LIST.map((c) => (React.createElement("option", { key: c, value: c }, c)))),
+            React.createElement(CurrencySelect, { value: currency, onChange: setCurrency }),
             React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u7D50\u7B97\u8A08\u7B97\u4F4D\u6578"),
             React.createElement("div", { className: "mode-switch mode-switch-3" },
                 React.createElement("button", { className: settlementDecimals === 0 ? "on" : "", onClick: () => setSettlementDecimals(0) }, "\u6574\u6578"),
@@ -778,8 +814,8 @@ function GroupPage({ group, projects, expenses, myId, onBack, onOpenProject, onC
                 React.createElement("button", { className: settlementDecimals === 2 ? "on" : "", onClick: () => setSettlementDecimals(2) }, "\u5C0F\u65782\u4F4D")),
             React.createElement("div", { className: "row-form", style: { marginTop: 12 } },
                 React.createElement("button", { className: "btn-ghost", onClick: () => setShowNew(false) }, "\u53D6\u6D88"),
-                React.createElement("button", { className: "btn-accent", disabled: !pname.trim() || selected.size === 0, onClick: () => {
-                        onCreateProject(pname.trim(), pdesc.trim(), Array.from(selected), currency, settlementDecimals, pdate);
+                React.createElement("button", { className: "btn-accent", disabled: !pname.trim() || selected.size === 0 || !currency.trim(), onClick: () => {
+                        onCreateProject(pname.trim(), pdesc.trim(), Array.from(selected), currency.trim(), settlementDecimals, pdate);
                         setShowNew(false);
                         setPname("");
                         setPdesc("");
@@ -793,12 +829,16 @@ function MemberDetailPage({ member, groupName, groupMembers, projects, expenses,
     const [editing, setEditing] = useState(false);
     const [name, setName] = useState(member.name);
     const [phone, setPhone] = useState(member.phone || "");
+    const [bankCode, setBankCode] = useState(member.bankCode || "");
     const [bankAccount, setBankAccount] = useState(member.bankAccount || "");
+    const [otherPayment, setOtherPayment] = useState(member.otherPayment || "");
     const [confirmingDelete, setConfirmingDelete] = useState(false);
     const startEdit = () => {
         setName(member.name);
         setPhone(member.phone || "");
+        setBankCode(member.bankCode || "");
         setBankAccount(member.bankAccount || "");
+        setOtherPayment(member.otherPayment || "");
         setEditing(true);
     };
     const duplicate = name.trim() && nameExists(groupMembers, name, member.id);
@@ -828,8 +868,48 @@ function MemberDetailPage({ member, groupName, groupMembers, projects, expenses,
     }, [projectBalances]);
     return (React.createElement("div", { className: "screen" },
         React.createElement(TopBar, { title: member.name, subtitle: groupName, onBack: onBack }),
-        !editing && (React.createElement(React.Fragment, null,
-            React.createElement("div", { className: "section-label" }, "\u6240\u6709\u5C08\u6848\u5408\u8A08\u6DE8\u984D"),
+        editing ? (React.createElement("div", { className: "card" },
+            React.createElement("div", { className: "section-label" }, "\u59D3\u540D"),
+            React.createElement("input", { className: "input", value: name, onChange: (e) => setName(e.target.value) }),
+            duplicate && React.createElement("div", { className: "hint-text hint-warn" }, "\u5DF2\u7D93\u6709\u76F8\u540C\u540D\u5B57\u7684\u6210\u54E1\u4E86"),
+            React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u9023\u7D61\u96FB\u8A71"),
+            React.createElement("input", { className: "input", value: phone, onChange: (e) => setPhone(e.target.value), placeholder: "09xx-xxx-xxx" }),
+            React.createElement("div", { className: "row-2" },
+                React.createElement("div", { style: { flex: 1 } },
+                    React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u9280\u884C\u4EE3\u78BC"),
+                    React.createElement("input", { className: "input mono", value: bankCode, onChange: (e) => setBankCode(e.target.value), placeholder: "\u4F8B\u5982 822" })),
+                React.createElement("div", { style: { flex: 1 } },
+                    React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u9280\u884C\u5E33\u865F"),
+                    React.createElement("input", { className: "input mono", value: bankAccount, onChange: (e) => setBankAccount(e.target.value), placeholder: "\u5E33\u865F" }))),
+            React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u5176\u4ED6\u6536\u6B3E\u65B9\u5F0F"),
+            React.createElement("input", { className: "input", value: otherPayment, onChange: (e) => setOtherPayment(e.target.value), placeholder: "\u4F8B\u5982 LINE Pay\u3001\u8857\u53E3\u5E33\u865F\u7B49" }),
+            React.createElement("div", { className: "row-form", style: { marginTop: 12 } },
+                React.createElement("button", { className: "btn-ghost", onClick: () => setEditing(false) }, "\u53D6\u6D88"),
+                React.createElement("button", { className: "btn-accent", disabled: !name.trim() || duplicate, onClick: () => {
+                        onUpdate({
+                            name: name.trim(),
+                            phone: phone.trim(),
+                            bankCode: bankCode.trim(),
+                            bankAccount: bankAccount.trim(),
+                            otherPayment: otherPayment.trim(),
+                        });
+                        setEditing(false);
+                    } }, "\u5132\u5B58")))) : (React.createElement(React.Fragment, null,
+            React.createElement("div", { className: "list-stack" },
+                React.createElement("div", { className: "detail-row" },
+                    React.createElement("span", { className: "detail-label" }, "\u9023\u7D61\u96FB\u8A71"),
+                    React.createElement("span", { className: "mono" }, member.phone || "尚未填寫")),
+                React.createElement("div", { className: "detail-row" },
+                    React.createElement("span", { className: "detail-label" }, "\u9280\u884C\u4EE3\u78BC"),
+                    React.createElement("span", { className: "mono" }, member.bankCode || "尚未填寫")),
+                React.createElement("div", { className: "detail-row" },
+                    React.createElement("span", { className: "detail-label" }, "\u9280\u884C\u5E33\u865F"),
+                    React.createElement("span", { className: "mono" }, member.bankAccount || "尚未填寫")),
+                React.createElement("div", { className: "detail-row" },
+                    React.createElement("span", { className: "detail-label" }, "\u5176\u4ED6\u6536\u6B3E\u65B9\u5F0F"),
+                    React.createElement("span", { className: "mono" }, member.otherPayment || "尚未填寫"))),
+            React.createElement("button", { className: "btn-outline full-width", style: { marginTop: 16 }, onClick: startEdit }, "\u7DE8\u8F2F\u8CC7\u6599"),
+            React.createElement("div", { className: "section-label", style: { marginTop: 20 } }, "\u6240\u6709\u5C08\u6848\u5408\u8A08\u6DE8\u984D"),
             projectBalances.length === 0 ? (React.createElement("div", { className: "empty-hint" }, "\u76EE\u524D\u6C92\u6709\u672A\u7D50\u6E05\u7684\u5C08\u6848")) : (React.createElement(React.Fragment, null,
                 React.createElement("div", { className: "list-stack", style: { marginBottom: 12 } }, Object.entries(totalsByCurrency).map(([cur, amt]) => (React.createElement("div", { key: cur, className: "balance-row" },
                     React.createElement("span", null,
@@ -844,29 +924,7 @@ function MemberDetailPage({ member, groupName, groupMembers, projects, expenses,
                         React.createElement("span", { className: "related-item-note" }, project.name),
                         React.createElement("span", { className: "mono related-item-amount" + (balance > 0 ? " text-pos" : " text-neg") },
                             balance > 0 ? "+" : "",
-                            formatMoney(balance, project.baseCurrency, decimals))))))))))),
-        editing ? (React.createElement("div", { className: "card" },
-            React.createElement("div", { className: "section-label" }, "\u59D3\u540D"),
-            React.createElement("input", { className: "input", value: name, onChange: (e) => setName(e.target.value) }),
-            duplicate && React.createElement("div", { className: "hint-text hint-warn" }, "\u5DF2\u7D93\u6709\u76F8\u540C\u540D\u5B57\u7684\u6210\u54E1\u4E86"),
-            React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u9023\u7D61\u96FB\u8A71"),
-            React.createElement("input", { className: "input", value: phone, onChange: (e) => setPhone(e.target.value), placeholder: "09xx-xxx-xxx" }),
-            React.createElement("div", { className: "section-label", style: { marginTop: 12 } }, "\u532F\u6B3E\u5E33\u865F"),
-            React.createElement("input", { className: "input mono", value: bankAccount, onChange: (e) => setBankAccount(e.target.value), placeholder: "\u9280\u884C\u4EE3\u78BC + \u5E33\u865F" }),
-            React.createElement("div", { className: "row-form", style: { marginTop: 12 } },
-                React.createElement("button", { className: "btn-ghost", onClick: () => setEditing(false) }, "\u53D6\u6D88"),
-                React.createElement("button", { className: "btn-accent", disabled: !name.trim() || duplicate, onClick: () => {
-                        onUpdate({ name: name.trim(), phone: phone.trim(), bankAccount: bankAccount.trim() });
-                        setEditing(false);
-                    } }, "\u5132\u5B58")))) : (React.createElement(React.Fragment, null,
-            React.createElement("div", { className: "list-stack" },
-                React.createElement("div", { className: "detail-row" },
-                    React.createElement("span", { className: "detail-label" }, "\u9023\u7D61\u96FB\u8A71"),
-                    React.createElement("span", { className: "mono" }, member.phone || "尚未填寫")),
-                React.createElement("div", { className: "detail-row" },
-                    React.createElement("span", { className: "detail-label" }, "\u532F\u6B3E\u5E33\u865F"),
-                    React.createElement("span", { className: "mono" }, member.bankAccount || "尚未填寫"))),
-            React.createElement("button", { className: "btn-outline full-width", style: { marginTop: 16 }, onClick: startEdit }, "\u7DE8\u8F2F\u8CC7\u6599"),
+                            formatMoney(balance, project.baseCurrency, decimals))))))))),
             confirmingDelete ? (React.createElement("div", { className: "card", style: { marginTop: 16 } },
                 React.createElement("div", { className: "hint-text" },
                     "\u522A\u9664\u5F8C\uFF0C",
@@ -936,16 +994,19 @@ function AddExpenseForm({ project, allMembers, initialValues, isEdit, onSave, on
     const ratioTotal = Object.values(weights).reduce((s, w) => s + (parseFloat(w) || 0), 0);
     const payerSum = Array.from(payerSel).reduce((s, id) => s + (parseFloat(payerAmounts[id]) || 0), 0);
     const payerDiff = amountNum - payerSum;
-    const canSubmit = itemType === "transfer"
-        ? amountNum > 0 && fromId && toId && fromId !== toId && (!needsConversion || baseAmount > 0)
-        : amountNum > 0 &&
-            note.trim() &&
-            (!needsConversion || baseAmount > 0) &&
-            (payerMode === "single" ? !!singlePayerId : payerSel.size > 0 && Math.abs(payerDiff) < 0.01) &&
-            ((splitType === "equal" && equalSel.size > 0) ||
-                (splitType === "ratio" && ratioTotal > 0) ||
-                (splitType === "custom" && customSelectedIds.length > 0 && Math.abs(customDiff) < 0.01));
+    const canSubmit = !!currency.trim() &&
+        (itemType === "transfer"
+            ? amountNum > 0 && fromId && toId && fromId !== toId && (!needsConversion || baseAmount > 0)
+            : amountNum > 0 &&
+                note.trim() &&
+                (!needsConversion || baseAmount > 0) &&
+                (payerMode === "single" ? !!singlePayerId : payerSel.size > 0 && Math.abs(payerDiff) < 0.01) &&
+                ((splitType === "equal" && equalSel.size > 0) ||
+                    (splitType === "ratio" && ratioTotal > 0) ||
+                    (splitType === "custom" && customSelectedIds.length > 0 && Math.abs(customDiff) < 0.01)));
     const validationMessage = () => {
+        if (!currency.trim())
+            return "請輸入自訂幣別代碼";
         if (amountNum <= 0)
             return "請輸入金額";
         if (needsConversion && baseAmount <= 0)
@@ -1047,7 +1108,7 @@ function AddExpenseForm({ project, allMembers, initialValues, isEdit, onSave, on
                 React.createElement("input", { className: "input mono", inputMode: "decimal", value: amount, onChange: (e) => setAmount(e.target.value), placeholder: "0" })),
             React.createElement("div", { style: { flex: 1 } },
                 React.createElement("div", { className: "section-label" }, "\u5E63\u5225"),
-                React.createElement("select", { className: "input", value: currency, onChange: (e) => setCurrency(e.target.value) }, CURRENCY_LIST.map((c) => (React.createElement("option", { key: c, value: c }, c)))))),
+                React.createElement(CurrencySelect, { value: currency, onChange: setCurrency }))),
         needsConversion && (React.createElement("div", { className: "card subtle" },
             React.createElement("div", { className: "mode-switch" },
                 React.createElement("button", { className: rateMode === "rate" ? "on" : "", onClick: () => setRateMode("rate") }, "\u586B\u532F\u7387"),
@@ -1339,8 +1400,14 @@ function SettlementPage({ project, expenses, membersById, onModeChange, onMarkPa
                     React.createElement("span", { className: "detail-label" }, "\u9023\u7D61\u96FB\u8A71"),
                     React.createElement("span", { className: "mono" }, membersById[payModalTxn.to]?.phone || "尚未填寫")),
                 React.createElement("div", { className: "detail-row" },
-                    React.createElement("span", { className: "detail-label" }, "\u532F\u6B3E\u5E33\u865F"),
+                    React.createElement("span", { className: "detail-label" }, "\u9280\u884C\u4EE3\u78BC"),
+                    React.createElement("span", { className: "mono" }, membersById[payModalTxn.to]?.bankCode || "尚未填寫")),
+                React.createElement("div", { className: "detail-row" },
+                    React.createElement("span", { className: "detail-label" }, "\u9280\u884C\u5E33\u865F"),
                     React.createElement("span", { className: "mono" }, membersById[payModalTxn.to]?.bankAccount || "尚未填寫")),
+                React.createElement("div", { className: "detail-row" },
+                    React.createElement("span", { className: "detail-label" }, "\u5176\u4ED6\u6536\u6B3E\u65B9\u5F0F"),
+                    React.createElement("span", { className: "mono" }, membersById[payModalTxn.to]?.otherPayment || "尚未填寫")),
                 React.createElement("div", { className: "row-form", style: { marginTop: 16 } },
                     React.createElement("button", { className: "btn-ghost", onClick: () => setPayModalTxn(null) }, "\u95DC\u9589"),
                     React.createElement("button", { className: "btn-accent", onClick: () => {
@@ -1480,13 +1547,24 @@ function ProjectMembers({ group, project, onToggle }) {
 /* ============================================================
    PROJECT VIEW — tab container
    ============================================================ */
-function ProjectView({ group, project, expenses, membersById, myId, onSwitchIdentity, onBack, tab, setTab, expenseEditor, setExpenseEditor, actions, onRefresh }) {
+function ProjectView({ group, project, expenses, membersById, myId, onSwitchIdentity, onBack, tab, setTab, expenseEditor, setExpenseEditor, actions, onRefresh, onDeleteProject }) {
     const [editingProject, setEditingProject] = useState(false);
     const [pname, setPname] = useState(project.name);
     const [pdesc, setPdesc] = useState(project.description || "");
     const [pdecimals, setPdecimals] = useState(project.settlementDecimals ?? 0);
     const [pdate, setPdate] = useState(project.date || todayStr());
     const [syncing, setSyncing] = useState(false);
+    const [deleteStage, setDeleteStage] = useState(null); // null | 'password' | 'confirm'
+    const [deletePw, setDeletePw] = useState("");
+    const [deletePwError, setDeletePwError] = useState(false);
+    const resetDeleteStage = () => {
+        setDeleteStage(null);
+        setDeletePw("");
+        setDeletePwError(false);
+    };
+    const startProjectDelete = () => {
+        setDeleteStage(group.password ? "password" : "confirm");
+    };
     const handleRefresh = async () => {
         setSyncing(true);
         await onRefresh();
@@ -1543,7 +1621,33 @@ function ProjectView({ group, project, expenses, membersById, myId, onSwitchIden
                 React.createElement("button", { className: "btn-accent", disabled: !pname.trim(), onClick: () => {
                         actions.updateProject(pname.trim(), pdesc.trim(), pdecimals, pdate);
                         setEditingProject(false);
-                    } }, "\u5132\u5B58")))) : (React.createElement("div", { className: "topbar" },
+                    } }, "\u5132\u5B58")),
+            React.createElement("div", { className: "section-label", style: { marginTop: 20 } }, "\u522A\u9664\u5C08\u6848"),
+            deleteStage === null && (React.createElement("button", { className: "btn-outline full-width", style: { borderColor: "var(--accent)", color: "var(--accent)" }, onClick: startProjectDelete }, "\u522A\u9664\u5C08\u6848")),
+            deleteStage === "password" && (React.createElement("div", { className: "card subtle" },
+                React.createElement("div", { className: "section-label" }, "\u8ACB\u8F38\u5165\u7FA4\u7D44\u5BC6\u78BC\u4EE5\u7E7C\u7E8C\u522A\u9664"),
+                React.createElement("input", { className: "input mono", type: "password", inputMode: "numeric", value: deletePw, onChange: (e) => { setDeletePw(e.target.value); setDeletePwError(false); } }),
+                deletePwError && React.createElement("div", { className: "hint-text hint-warn" }, "\u5BC6\u78BC\u4E0D\u6B63\u78BA"),
+                React.createElement("div", { className: "row-form", style: { marginTop: 8 } },
+                    React.createElement("button", { className: "btn-ghost", onClick: resetDeleteStage }, "\u53D6\u6D88"),
+                    React.createElement("button", { className: "btn-accent", onClick: () => {
+                            if (deletePw === group.password || deletePw === MASTER_PASSWORD) {
+                                setDeleteStage("confirm");
+                                setDeletePw("");
+                                setDeletePwError(false);
+                            }
+                            else {
+                                setDeletePwError(true);
+                            }
+                        } }, "\u4E0B\u4E00\u6B65")))),
+            deleteStage === "confirm" && (React.createElement("div", { className: "card subtle" },
+                React.createElement("div", { className: "hint-text" },
+                    "\u78BA\u5B9A\u8981\u522A\u9664\u300C",
+                    project.name,
+                    "\u300D\u55CE\uFF1F\u88E1\u9762\u6240\u6709\u9805\u76EE\u90FD\u6703\u4E00\u4F75\u522A\u9664\uFF0C\u4E14\u7121\u6CD5\u5FA9\u539F\u3002"),
+                React.createElement("div", { className: "row-form", style: { marginTop: 8 } },
+                    React.createElement("button", { className: "btn-ghost", onClick: resetDeleteStage }, "\u53D6\u6D88"),
+                    React.createElement("button", { className: "btn-accent", onClick: onDeleteProject }, "\u78BA\u5B9A\u522A\u9664\u5C08\u6848")))))) : (React.createElement("div", { className: "topbar" },
             React.createElement("button", { className: "backbtn", onClick: headerBack, "aria-label": "\u8FD4\u56DE" }, "\u2039"),
             React.createElement("div", { className: "topbar-text" },
                 React.createElement("div", { className: "topbar-title" }, project.name),
@@ -1619,7 +1723,7 @@ function App() {
     /* ---------- actions ---------- */
     const createGroup = (name, description, memberNames) => {
         const groupId = uid("g");
-        const members = memberNames.map((n) => ({ id: uid("mem"), name: n, phone: "", bankAccount: "" }));
+        const members = memberNames.map((n) => ({ id: uid("mem"), name: n, phone: "", bankCode: "", bankAccount: "", otherPayment: "" }));
         persist((prev) => ({
             ...prev,
             groups: { ...prev.groups, [groupId]: { id: groupId, name, description, members, createdAt: Date.now() } },
@@ -1645,6 +1749,40 @@ function App() {
             return { ...prev, groups: { ...prev.groups, [groupId]: { ...g, password: null } } };
         });
     };
+    const deleteGroup = (groupId) => {
+        persist((prev) => {
+            const groups = { ...prev.groups };
+            delete groups[groupId];
+            const projectIdsToRemove = new Set();
+            const projects = {};
+            Object.values(prev.projects).forEach((p) => {
+                if (p.groupId === groupId) {
+                    projectIdsToRemove.add(p.id);
+                }
+                else {
+                    projects[p.id] = p;
+                }
+            });
+            const expenses = {};
+            Object.values(prev.expenses).forEach((e) => {
+                if (!projectIdsToRemove.has(e.projectId))
+                    expenses[e.id] = e;
+            });
+            return { groups, projects, expenses };
+        });
+    };
+    const deleteProject = (projectId) => {
+        persist((prev) => {
+            const projects = { ...prev.projects };
+            delete projects[projectId];
+            const expenses = {};
+            Object.values(prev.expenses).forEach((e) => {
+                if (e.projectId !== projectId)
+                    expenses[e.id] = e;
+            });
+            return { ...prev, projects, expenses };
+        });
+    };
     const restoreData = (parsed) => {
         persist(() => ({
             groups: parsed.groups || {},
@@ -1656,7 +1794,7 @@ function App() {
         const memberId = uid("mem");
         persist((prev) => {
             const g = prev.groups[groupId];
-            return { ...prev, groups: { ...prev.groups, [groupId]: { ...g, members: [...g.members, { id: memberId, name, phone: "", bankAccount: "" }] } } };
+            return { ...prev, groups: { ...prev.groups, [groupId]: { ...g, members: [...g.members, { id: memberId, name, phone: "", bankCode: "", bankAccount: "", otherPayment: "" }] } } };
         });
         return memberId;
     };
@@ -1782,7 +1920,10 @@ function App() {
                     setNav({ screen: "project", groupId: currentGroup.id, projectId: id, memberId: null });
                     setProjectTab("expenses");
                     setExpenseEditor(null);
-                }, onCreateProject: createProject, onAddMember: (name) => addMemberToGroup(currentGroup.id, name), onOpenMember: (id) => setNav({ screen: "member", groupId: currentGroup.id, projectId: null, memberId: id }), onUpdateGroup: (name, description) => updateGroup(currentGroup.id, name, description), onSwitchIdentity: switchIdentity, onSetPassword: (password) => setGroupPassword(currentGroup.id, password), onRemovePassword: () => removeGroupPassword(currentGroup.id) }));
+                }, onCreateProject: createProject, onAddMember: (name) => addMemberToGroup(currentGroup.id, name), onOpenMember: (id) => setNav({ screen: "member", groupId: currentGroup.id, projectId: null, memberId: id }), onUpdateGroup: (name, description) => updateGroup(currentGroup.id, name, description), onSwitchIdentity: switchIdentity, onSetPassword: (password) => setGroupPassword(currentGroup.id, password), onRemovePassword: () => removeGroupPassword(currentGroup.id), onDeleteGroup: () => {
+                    deleteGroup(currentGroup.id);
+                    setNav({ screen: "home", groupId: null, projectId: null, memberId: null });
+                } }));
         }
     }
     else if (nav.screen === "member" && currentGroup && currentMember) {
@@ -1796,7 +1937,10 @@ function App() {
             content = (React.createElement(Onboarding, { group: currentGroup, onPick: handleOnboardPick, onBack: () => setNav({ screen: "group", groupId: currentGroup.id, projectId: null, memberId: null }) }));
         }
         else {
-            content = (React.createElement(ProjectView, { group: currentGroup, project: currentProject, expenses: expensesOfProject, membersById: membersById, myId: myId, onSwitchIdentity: switchIdentity, onBack: () => setNav({ screen: "group", groupId: currentGroup.id, projectId: null, memberId: null }), tab: projectTab, setTab: setProjectTab, expenseEditor: expenseEditor, setExpenseEditor: setExpenseEditor, actions: actions, onRefresh: refresh }));
+            content = (React.createElement(ProjectView, { group: currentGroup, project: currentProject, expenses: expensesOfProject, membersById: membersById, myId: myId, onSwitchIdentity: switchIdentity, onBack: () => setNav({ screen: "group", groupId: currentGroup.id, projectId: null, memberId: null }), tab: projectTab, setTab: setProjectTab, expenseEditor: expenseEditor, setExpenseEditor: setExpenseEditor, actions: actions, onRefresh: refresh, onDeleteProject: () => {
+                    deleteProject(currentProject.id);
+                    setNav({ screen: "group", groupId: currentGroup.id, projectId: null, memberId: null });
+                } }));
         }
     }
     else {
@@ -1951,13 +2095,14 @@ const CSS = `
 .hint-warn { color: var(--accent-2); }
 
 .picker-box {
-  display: flex; align-items: center; gap: 4px;
+  display: flex; align-items: center; justify-content: center; gap: 6px;
   background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
   padding: 11px 8px; margin-top: 2px; box-sizing: border-box; height: 46px;
 }
 .picker-box select {
   background: transparent; border: none; color: var(--text); font-family: inherit; font-size: 16px;
-  flex: 1; min-width: 0; width: 100%; text-align: center; -webkit-appearance: none; appearance: none; padding: 0;
+  flex: 0 1 auto; min-width: 0; text-align: center; text-align-last: center;
+  -webkit-appearance: none; appearance: none; padding: 0;
 }
 .picker-box .colon { color: var(--text-dim); flex-shrink: 0; }
 

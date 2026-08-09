@@ -1,0 +1,2755 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1" />
+<title>猴子分帳本</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #14181f; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+
+<script src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useCallback, useMemo, useRef } = React;
+
+/* ============================================================
+   CONSTANTS
+   ============================================================ */
+
+const SUPABASE_URL = "https://nalpftuibhsjbtvezssd.supabase.co";
+const SUPABASE_KEY = "sb_publishable_vo1ST_2Dak_rmIl62kTKww_SMnFWIB6";
+const SUPABASE_TABLE = "app_data";
+const RECORD_ID = "main";
+
+async function supabaseGet() {
+  const res = await fetch(
+    `${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}?id=eq.${RECORD_ID}&select=data`,
+    { headers: { apikey: SUPABASE_KEY, Authorization: `Bearer ${SUPABASE_KEY}` } }
+  );
+  if (!res.ok) throw new Error(`讀取失敗: ${res.status}`);
+  const rows = await res.json();
+  return rows && rows.length > 0 ? rows[0].data : null;
+}
+
+async function supabaseSet(data) {
+  const res = await fetch(`${SUPABASE_URL}/rest/v1/${SUPABASE_TABLE}`, {
+    method: "POST",
+    headers: {
+      apikey: SUPABASE_KEY,
+      Authorization: `Bearer ${SUPABASE_KEY}`,
+      "Content-Type": "application/json",
+      Prefer: "resolution=merge-duplicates,return=minimal",
+    },
+    body: JSON.stringify({ id: RECORD_ID, data, updated_at: new Date().toISOString() }),
+  });
+  if (!res.ok) throw new Error(`寫入失敗: ${res.status}`);
+}
+const MASTER_PASSWORD = "0000"; // universal override, in case the group password is forgotten
+
+const CATEGORIES = [
+  { id: "food", label: "飲食", color: "#E8A33D" },
+  { id: "fun", label: "娛樂", color: "#B98BD6" },
+  { id: "stay", label: "住宿", color: "#5DA9E8" },
+  { id: "transport", label: "交通", color: "#4CAF7D" },
+  { id: "gear", label: "用具", color: "#E8846B" },
+  { id: "other", label: "其他", color: "#9AA3AF" },
+];
+
+const CURRENCY_DECIMALS = { TWD: 0, JPY: 0, USD: 2, EUR: 2, KRW: 0, CNY: 2, HKD: 2, GBP: 2 };
+const CURRENCY_LIST = ["TWD", "JPY", "USD", "EUR", "KRW", "CNY", "HKD", "GBP"];
+
+function decimalsOf(cur) {
+  return CURRENCY_DECIMALS[cur] !== undefined ? CURRENCY_DECIMALS[cur] : 2;
+}
+
+/* ============================================================
+   UTILITIES
+   ============================================================ */
+
+function uid(prefix) {
+  return `${prefix}_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function todayStr() {
+  const d = new Date();
+  return d.toISOString().slice(0, 10);
+}
+
+// Checks for an exact-match (post-trim) name collision among a group's members.
+// Includes soft-deleted members too, so a freed-up name can't create ambiguity
+// with old historical records that still display that name.
+function nameExists(members, name, excludeId) {
+  const trimmed = name.trim();
+  return members.some((m) => m.id !== excludeId && m.name === trimmed);
+}
+
+function roundFavorReceiver(amount, decimals) {
+  const factor = Math.pow(10, decimals);
+  return Math.ceil(amount * factor - 1e-9) / factor;
+}
+
+function roundTo(amount, decimals) {
+  const factor = Math.pow(10, decimals);
+  return Math.round((amount + 1e-9) * factor) / factor;
+}
+
+function formatMoney(amount, currency, decimalsOverride) {
+  const d = decimalsOverride !== undefined ? decimalsOverride : decimalsOf(currency);
+  const n = Number(amount).toFixed(d);
+  const parts = n.split(".");
+  parts[0] = parts[0].replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${currency} ${parts.join(".")}`;
+}
+
+function categoryOf(id) {
+  return CATEGORIES.find((c) => c.id === id) || CATEGORIES[CATEGORIES.length - 1];
+}
+
+function computeExpenseShares(expense) {
+  const shares = {};
+  const total = expense.baseAmount;
+  if (expense.splitType === "equal") {
+    const n = expense.splitMemberIds.length || 1;
+    expense.splitMemberIds.forEach((id) => (shares[id] = total / n));
+  } else if (expense.splitType === "ratio") {
+    const sumW = expense.splitMemberIds.reduce((s, id) => s + (expense.splitWeights[id] || 0), 0) || 1;
+    expense.splitMemberIds.forEach((id) => (shares[id] = (total * (expense.splitWeights[id] || 0)) / sumW));
+  } else if (expense.splitType === "custom") {
+    const factor = expense.amount > 0 ? total / expense.amount : 0;
+    expense.splitMemberIds.forEach((id) => (shares[id] = (expense.splitAmounts[id] || 0) * factor));
+  }
+  return shares;
+}
+
+function computePayerBaseAmounts(expense) {
+  const result = {};
+  const factor = expense.amount > 0 ? expense.baseAmount / expense.amount : 0;
+  (expense.payers || []).forEach((p) => {
+    result[p.memberId] = (result[p.memberId] || 0) + p.amount * factor;
+  });
+  return result;
+}
+
+function computeItemAllocation(expense) {
+  // Each split-member's share is ceiling-rounded to 2dp regardless of currency.
+  // The resulting excess (sum of rounded shares - baseAmount) is deducted from
+  // the payer with the largest amount (so it doesn't silently vanish).
+  const rawShares = computeExpenseShares(expense);
+  const shares = {};
+  let sumRounded = 0;
+  Object.entries(rawShares).forEach(([id, v]) => {
+    const r = roundFavorReceiver(v, 2);
+    shares[id] = r;
+    sumRounded += r;
+  });
+  const excess = sumRounded - expense.baseAmount;
+
+  const payerCredits = { ...computePayerBaseAmounts(expense) };
+  const payerIds = Object.keys(payerCredits);
+  if (payerIds.length > 0 && Math.abs(excess) > 1e-9) {
+    let maxId = payerIds[0];
+    payerIds.forEach((id) => {
+      if (payerCredits[id] > payerCredits[maxId]) maxId = id;
+    });
+    payerCredits[maxId] = payerCredits[maxId] - excess;
+  }
+  Object.keys(payerCredits).forEach((id) => (payerCredits[id] = roundTo(payerCredits[id], 2)));
+
+  return { shares, payerCredits };
+}
+
+// A specific person's own signed amount for one item — negative means it cost
+// them money (expense share, or a transfer they sent), positive means they
+// received money (income share, or a transfer they got). Returns null when
+// the person isn't a split-member/contributor of that item at all, so the
+// caller can render nothing rather than a zero.
+function personalItemAmount(item, memberId) {
+  const itemType = item.itemType || "expense";
+  if (itemType === "transfer") {
+    if (item.fromMemberId === memberId) return -item.baseAmount;
+    if (item.toMemberId === memberId) return item.baseAmount;
+    return null;
+  }
+  const { shares } = computeItemAllocation(item);
+  if (shares[memberId] === undefined) return null;
+  return itemType === "collection" ? shares[memberId] : -shares[memberId];
+}
+
+function computeBalances(memberIds, expenses) {
+  const balances = {};
+  memberIds.forEach((id) => (balances[id] = 0));
+  expenses.forEach((exp) => {
+    const itemType = exp.itemType || "expense";
+    if (itemType === "transfer") {
+      const amt = exp.baseAmount;
+      balances[exp.fromMemberId] = (balances[exp.fromMemberId] || 0) + amt;
+      balances[exp.toMemberId] = (balances[exp.toMemberId] || 0) - amt;
+      return;
+    }
+    const sign = itemType === "collection" ? -1 : 1;
+    const { shares, payerCredits } = computeItemAllocation(exp);
+    Object.entries(payerCredits).forEach(([id, amt]) => {
+      balances[id] = (balances[id] || 0) + sign * amt;
+    });
+    Object.entries(shares).forEach(([id, share]) => {
+      balances[id] = (balances[id] || 0) - sign * share;
+    });
+  });
+  return balances;
+}
+
+function reconcileBalances(rawBalances, decimals) {
+  // Rounds every debtor's payment up, rounds every creditor's receipt up
+  // except the largest, who absorbs whatever remainder keeps the total at zero.
+  const EPS = 1e-6;
+  const entries = Object.entries(rawBalances);
+  const debtors = entries.filter(([, v]) => v < -EPS).map(([id, v]) => ({ id, amount: roundFavorReceiver(-v, decimals) }));
+  const creditors = entries.filter(([, v]) => v > EPS).map(([id, v]) => ({ id, raw: v, amount: roundFavorReceiver(v, decimals) }));
+  const totalOwed = debtors.reduce((s, d) => s + d.amount, 0);
+
+  if (creditors.length > 0) {
+    creditors.sort((a, b) => b.raw - a.raw);
+    const othersSum = creditors.slice(1).reduce((s, c) => s + c.amount, 0);
+    creditors[0].amount = roundTo(totalOwed - othersSum, decimals);
+  }
+
+  const reconciled = {};
+  debtors.forEach((d) => (reconciled[d.id] = -d.amount));
+  creditors.forEach((c) => (reconciled[c.id] = c.amount));
+  return reconciled;
+}
+
+function typeLabel(itemType) {
+  if (itemType === "collection") return "收入";
+  if (itemType === "transfer") return "轉帳";
+  return "支出";
+}
+
+function nowHHMM() {
+  const d = new Date();
+  const h = String(d.getHours()).padStart(2, "0");
+  const m = String(Math.floor(d.getMinutes() / 5) * 5).padStart(2, "0");
+  return { hour: h, minute: m };
+}
+
+function simplifyDebts(balances, decimals) {
+  const EPS = 1e-6;
+  let creditors = Object.entries(balances)
+    .filter(([, v]) => v > EPS)
+    .map(([id, v]) => ({ id, v }));
+  let debtors = Object.entries(balances)
+    .filter(([, v]) => v < -EPS)
+    .map(([id, v]) => ({ id, v: -v }));
+  creditors.sort((a, b) => b.v - a.v);
+  debtors.sort((a, b) => b.v - a.v);
+  const txns = [];
+  let ci = 0,
+    di = 0;
+  while (ci < creditors.length && di < debtors.length) {
+    const c = creditors[ci],
+      d = debtors[di];
+    const raw = Math.min(c.v, d.v);
+    if (raw > EPS) {
+      txns.push({ from: d.id, to: c.id, amount: roundFavorReceiver(raw, decimals) });
+    }
+    c.v -= raw;
+    d.v -= raw;
+    if (c.v <= EPS) ci++;
+    if (d.v <= EPS) di++;
+  }
+  return txns;
+}
+
+function oneCollectorSettlement(balances, collectorId, decimals) {
+  const EPS = 1e-6;
+  const txns = [];
+  Object.entries(balances).forEach(([id, v]) => {
+    if (id === collectorId) return;
+    if (v < -EPS) txns.push({ from: id, to: collectorId, amount: roundFavorReceiver(-v, decimals) });
+    else if (v > EPS) txns.push({ from: collectorId, to: id, amount: roundFavorReceiver(v, decimals) });
+  });
+  return txns;
+}
+
+/* ============================================================
+   SEED DATA — 「勿考試喝酒」
+   ============================================================ */
+
+function buildSeedData() {
+  const groupId = uid("g");
+  const names = ["猴子", "昭毅", "小比", "軒銘", "德濬", "彥廷", "子謙", "阿愷", "正傑"];
+  const members = names.map((name) => ({ id: uid("mem"), name, phone: "", bankAccount: "" }));
+  const byName = Object.fromEntries(members.map((m) => [m.name, m.id]));
+
+  const projectId = uid("p");
+  const projectMemberIds = members.filter((m) => m.name !== "正傑").map((m) => m.id);
+
+  const expenseId = uid("e");
+  const expense = {
+    id: expenseId,
+    projectId,
+    itemType: "expense",
+    category: "food",
+    note: "酒",
+    amount: 2000,
+    currency: "TWD",
+    exchangeRate: 1,
+    baseAmount: 2000,
+    payers: [{ memberId: byName["猴子"], amount: 2000 }],
+    date: "2026-08-22",
+    time: "20:00",
+    splitType: "equal",
+    splitMemberIds: [...projectMemberIds],
+    splitWeights: {},
+    splitAmounts: {},
+    createdAt: Date.now(),
+  };
+
+  const group = { id: groupId, name: "勿考試喝酒", description: "", members, createdAt: Date.now() };
+  const project = {
+    id: projectId,
+    groupId,
+    name: "822軒銘家",
+    description: "",
+    memberIds: projectMemberIds,
+    baseCurrency: "TWD",
+    settlementDecimals: 0,
+    settlementMode: "min",
+    collectorId: byName["猴子"],
+    createdAt: Date.now(),
+  };
+
+  return {
+    groups: { [groupId]: group },
+    projects: { [projectId]: project },
+    expenses: { [expenseId]: expense },
+  };
+}
+
+/* ============================================================
+   STORAGE HOOK
+   ============================================================ */
+
+function useStore() {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [err, setErr] = useState(null);
+  const [retryCount, setRetryCount] = useState(0);
+  const lastLocalEditRef = useRef(0);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setErr(null);
+    (async () => {
+      try {
+        const readOnce = async () => {
+          try {
+            return await supabaseGet();
+          } catch (e) {
+            // ignore, treated as empty below
+          }
+          return null;
+        };
+
+        let sharedData = await readOnce();
+
+        if (!sharedData || !sharedData.groups || Object.keys(sharedData.groups).length === 0) {
+          // Don't trust a single empty read — a transient hiccup shouldn't cause
+          // us to re-seed over real data. Wait briefly and check once more
+          // before concluding this is genuinely a fresh, empty database.
+          await new Promise((r) => setTimeout(r, 400));
+          const retryData = await readOnce();
+          if (retryData && retryData.groups && Object.keys(retryData.groups).length > 0) {
+            sharedData = retryData;
+          } else {
+            sharedData = buildSeedData();
+            try {
+              await supabaseSet(sharedData);
+            } catch (e) {
+              // Writing the seed failed (e.g. network hiccup on first load).
+              // Keep going with the in-memory seed; persist() will retry saving on the next edit.
+            }
+          }
+        }
+        if (!cancelled) setData(sharedData);
+      } catch (e) {
+        if (!cancelled) setErr(String(e));
+      } finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [retryCount]);
+
+  const persist = useCallback(async (updater) => {
+    lastLocalEditRef.current = Date.now();
+    setData((prev) => {
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      supabaseSet(next).catch(() => {});
+      return next;
+    });
+  }, []);
+
+  const refresh = useCallback(async () => {
+    // Give our own just-made edit a moment to land before pulling from
+    // storage again, so a poll doesn't momentarily revert it.
+    if (Date.now() - lastLocalEditRef.current < 3000) return;
+    try {
+      const fresh = await supabaseGet();
+      if (fresh && fresh.groups) setData(fresh);
+    } catch (e) {
+      // silent — a failed background sync just means we keep showing what we have
+    }
+  }, []);
+
+  useEffect(() => {
+    const onVisible = () => {
+      if (document.visibilityState === "visible") refresh();
+    };
+    document.addEventListener("visibilitychange", onVisible);
+    const interval = setInterval(refresh, 20000);
+    return () => {
+      document.removeEventListener("visibilitychange", onVisible);
+      clearInterval(interval);
+    };
+  }, [refresh]);
+
+  const retry = useCallback(() => setRetryCount((c) => c + 1), []);
+
+  return { data, loading, err, persist, retry, refresh };
+}
+
+/* ============================================================
+   SMALL UI PRIMITIVES
+   ============================================================ */
+
+function Chip({ color, children }) {
+  return (
+    <span
+      className="chip"
+      style={{ background: `${color}22`, color, borderColor: `${color}55` }}
+    >
+      {children}
+    </span>
+  );
+}
+
+function TopBar({ title, subtitle, onBack }) {
+  return (
+    <div className="topbar">
+      {onBack && (
+        <button className="backbtn" onClick={onBack} aria-label="返回">
+          ‹
+        </button>
+      )}
+      <div className="topbar-text">
+        <div className="topbar-title">{title}</div>
+        {subtitle && <div className="topbar-sub">{subtitle}</div>}
+      </div>
+    </div>
+  );
+}
+
+function Bar({ pct, color }) {
+  return (
+    <div className="bar-track">
+      <div className="bar-fill" style={{ width: `${Math.max(0, Math.min(100, pct))}%`, background: color }} />
+    </div>
+  );
+}
+
+/* ============================================================
+   GROUP LOCK — password gate
+   ============================================================ */
+
+function GroupLockScreen({ group, onUnlock, onBack }) {
+  const [pw, setPw] = useState("");
+  const [error, setError] = useState(false);
+
+  const tryUnlock = () => {
+    if (pw === group.password || pw === MASTER_PASSWORD) {
+      onUnlock();
+    } else {
+      setError(true);
+    }
+  };
+
+  return (
+    <div className="screen">
+      <div className="topbar" style={{ marginBottom: 0 }}>
+        <button className="backbtn" onClick={onBack} aria-label="返回">‹</button>
+      </div>
+      <div className="onboard-hero">
+        <div className="onboard-eyebrow">已鎖定</div>
+        <div className="onboard-title">{group.name}</div>
+        <div className="onboard-desc">這個群組設有密碼保護，請輸入密碼</div>
+      </div>
+      <div className="section-label">密碼</div>
+      <input
+        className="input mono"
+        type="password"
+        inputMode="numeric"
+        value={pw}
+        onChange={(e) => { setPw(e.target.value); setError(false); }}
+        onKeyDown={(e) => { if (e.key === "Enter") tryUnlock(); }}
+        placeholder="請輸入密碼"
+        autoFocus
+      />
+      {error && <div className="hint-text hint-warn">密碼不正確</div>}
+      <button className="btn-accent full-width" style={{ marginTop: 14 }} disabled={!pw} onClick={tryUnlock}>
+        解鎖
+      </button>
+    </div>
+  );
+}
+
+/* ============================================================
+   ONBOARDING — 「你是誰？」
+   ============================================================ */
+
+function Onboarding({ group, onPick, onBack }) {
+  const [newName, setNewName] = useState("");
+  const activeMembers = group.members.filter((m) => !m.deleted);
+  const duplicate = newName.trim() && nameExists(group.members, newName);
+  return (
+    <div className="screen">
+      <div className="topbar" style={{ marginBottom: 0 }}>
+        <button className="backbtn" onClick={onBack} aria-label="返回">‹</button>
+      </div>
+      <div className="onboard-hero">
+        <div className="onboard-eyebrow">加入群組</div>
+        <div className="onboard-title">{group.name}</div>
+        <div className="onboard-desc">先告訴我們你是誰，這輪瀏覽中會記得你</div>
+      </div>
+      <div className="section-label">我是已知成員</div>
+      <div className="member-pick-grid">
+        {activeMembers.map((m) => (
+          <button key={m.id} className="member-pick" onClick={() => onPick(m.id)}>
+            {m.name}
+          </button>
+        ))}
+      </div>
+      <div className="section-label" style={{ marginTop: 20 }}>
+        還不在名單上？
+      </div>
+      <div className="row-form">
+        <input
+          className="input"
+          placeholder="輸入你的名字"
+          value={newName}
+          onChange={(e) => setNewName(e.target.value)}
+        />
+        <button
+          className="btn-accent"
+          disabled={!newName.trim() || duplicate}
+          onClick={() => onPick(null, newName.trim())}
+        >
+          加入
+        </button>
+      </div>
+      {duplicate && <div className="hint-text hint-warn">已經有相同名字的成員了</div>}
+    </div>
+  );
+}
+
+/* ============================================================
+   HOME — group list
+   ============================================================ */
+
+function BackupPanel({ data, onRestore }) {
+  const [open, setOpen] = useState(false);
+  const [mode, setMode] = useState("export"); // 'export' | 'import'
+  const [restoreText, setRestoreText] = useState("");
+  const [restoreError, setRestoreError] = useState("");
+  const [confirmingRestore, setConfirmingRestore] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  const backupJson = useMemo(() => JSON.stringify(data, null, 2), [data]);
+
+  const downloadBackup = () => {
+    try {
+      const blob = new Blob([backupJson], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `分帳本備份-${todayStr()}.json`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch (e) {
+      // ignore — the textarea below is the manual-copy fallback
+    }
+  };
+
+  const copyBackup = async () => {
+    try {
+      await navigator.clipboard.writeText(backupJson);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch (e) {
+      setCopied(false);
+    }
+  };
+
+  const tryRestore = () => {
+    setRestoreError("");
+    try {
+      const parsed = JSON.parse(restoreText);
+      if (!parsed || typeof parsed !== "object" || !parsed.groups || !parsed.projects || !parsed.expenses) {
+        setRestoreError("格式不正確，請確認貼上的是完整的備份內容");
+        return;
+      }
+      setConfirmingRestore(true);
+    } catch (e) {
+      setRestoreError("無法解析，請確認貼上的是完整的備份內容");
+    }
+  };
+
+  const doRestore = () => {
+    try {
+      const parsed = JSON.parse(restoreText);
+      onRestore(parsed);
+      setConfirmingRestore(false);
+      setRestoreText("");
+      setOpen(false);
+    } catch (e) {
+      setRestoreError("還原失敗，請確認內容正確");
+      setConfirmingRestore(false);
+    }
+  };
+
+  if (!open) {
+    return (
+      <button className="btn-outline full-width" style={{ marginTop: 10 }} onClick={() => setOpen(true)}>
+        資料備份與還原
+      </button>
+    );
+  }
+
+  return (
+    <div className="card" style={{ marginTop: 10 }}>
+      <div className="mode-switch">
+        <button className={mode === "export" ? "on" : ""} onClick={() => setMode("export")}>匯出備份</button>
+        <button className={mode === "import" ? "on" : ""} onClick={() => setMode("import")}>還原備份</button>
+      </div>
+
+      {mode === "export" ? (
+        <>
+          <div className="hint-text" style={{ marginTop: 8 }}>
+            建議定期備份，尤其是改版前後，以防萬一。備份內容包含所有群組、專案、項目。
+          </div>
+          <div className="row-form" style={{ marginTop: 10 }}>
+            <button className="btn-ghost" onClick={downloadBackup}>下載檔案</button>
+            <button className="btn-accent" onClick={copyBackup}>{copied ? "已複製" : "複製內容"}</button>
+          </div>
+          <textarea
+            className="input textarea mono"
+            style={{ marginTop: 10, minHeight: 100, fontSize: 11 }}
+            readOnly
+            value={backupJson}
+            onFocus={(e) => e.target.select()}
+          />
+        </>
+      ) : (
+        <>
+          <div className="hint-text" style={{ marginTop: 8 }}>
+            貼上之前匯出的備份內容，還原後會蓋掉目前所有資料，請確認清楚再執行。
+          </div>
+          <textarea
+            className="input textarea mono"
+            style={{ marginTop: 10, minHeight: 100, fontSize: 11 }}
+            placeholder="貼上備份的 JSON 內容"
+            value={restoreText}
+            onChange={(e) => { setRestoreText(e.target.value); setRestoreError(""); }}
+          />
+          {restoreError && <div className="hint-text hint-warn">{restoreError}</div>}
+          {confirmingRestore ? (
+            <div className="row-form" style={{ marginTop: 10 }}>
+              <button className="btn-ghost" onClick={() => setConfirmingRestore(false)}>取消</button>
+              <button className="btn-accent" onClick={doRestore}>確定還原(會覆蓋目前資料)</button>
+            </div>
+          ) : (
+            <button className="btn-accent full-width" style={{ marginTop: 10 }} disabled={!restoreText.trim()} onClick={tryRestore}>
+              還原
+            </button>
+          )}
+        </>
+      )}
+
+      <button className="btn-ghost full-width" style={{ marginTop: 10 }} onClick={() => setOpen(false)}>關閉</button>
+    </div>
+  );
+}
+
+function Home({ groups, onOpenGroup, onCreateGroup, data, onRestore, onRefresh }) {
+  const [showNew, setShowNew] = useState(false);
+  const [name, setName] = useState("");
+  const [desc, setDesc] = useState("");
+  const [memberText, setMemberText] = useState("");
+  const [syncing, setSyncing] = useState(false);
+
+  const handleRefresh = async () => {
+    setSyncing(true);
+    await onRefresh();
+    setTimeout(() => setSyncing(false), 400);
+  };
+
+  return (
+    <div className="screen">
+      <div className="app-title-block" style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
+        <div>
+          <div className="app-title">分帳本</div>
+          <div className="app-sub">朋友之間，帳算清楚，感情才長久</div>
+        </div>
+        <button className="edit-icon-btn" onClick={handleRefresh} disabled={syncing}>
+          {syncing ? "同步中…" : "🔄 同步"}
+        </button>
+      </div>
+      <div className="section-label">我的群組</div>
+      <div className="list-stack">
+        {groups.map((g) => (
+          <button key={g.id} className="group-card" onClick={() => onOpenGroup(g.id)}>
+            <div className="group-card-name">{g.name}{g.password && " 🔒"}</div>
+            {g.description && <div className="card-desc">{g.description}</div>}
+            <div className="group-card-meta">{g.members.length} 位成員</div>
+          </button>
+        ))}
+        {groups.length === 0 && <div className="empty-hint">還沒有群組，建立第一個吧</div>}
+      </div>
+
+      {!showNew ? (
+        <button className="btn-outline full-width" style={{ marginTop: 16 }} onClick={() => setShowNew(true)}>
+          ＋ 新增群組
+        </button>
+      ) : (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="section-label">群組名稱</div>
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：勿考試喝酒" />
+          <div className="section-label" style={{ marginTop: 12 }}>說明(選填)</div>
+          <textarea className="input textarea" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="這個群組是做什麼用的" />
+          <div className="section-label" style={{ marginTop: 12 }}>成員(用逗號分開)</div>
+          <textarea
+            className="input textarea"
+            value={memberText}
+            onChange={(e) => setMemberText(e.target.value)}
+            placeholder="猴子, 昭毅, 小比..."
+          />
+          <div className="row-form" style={{ marginTop: 12 }}>
+            <button className="btn-ghost" onClick={() => setShowNew(false)}>取消</button>
+            <button
+              className="btn-accent"
+              disabled={!name.trim()}
+              onClick={() => {
+                const names = memberText.split(/[,，\n]/).map((s) => s.trim()).filter(Boolean);
+                onCreateGroup(name.trim(), desc.trim(), names);
+                setShowNew(false);
+                setName("");
+                setDesc("");
+                setMemberText("");
+              }}
+            >
+              建立群組
+            </button>
+          </div>
+        </div>
+      )}
+
+      <BackupPanel data={data} onRestore={onRestore} />
+    </div>
+  );
+}
+
+/* ============================================================
+   GROUP PAGE — members + projects
+   ============================================================ */
+
+function GroupPage({ group, projects, myId, onBack, onOpenProject, onCreateProject, onAddMember, onOpenMember, onUpdateGroup, onSwitchIdentity, onSetPassword, onRemovePassword }) {
+  const activeMembers = group.members.filter((m) => !m.deleted);
+  const [showNew, setShowNew] = useState(false);
+  const [pname, setPname] = useState("");
+  const [pdesc, setPdesc] = useState("");
+  const [selected, setSelected] = useState(() => new Set(activeMembers.map((m) => m.id)));
+  const [currency, setCurrency] = useState("TWD");
+  const [settlementDecimals, setSettlementDecimals] = useState(0);
+  const [showAddMember, setShowAddMember] = useState(false);
+  const [newMemberName, setNewMemberName] = useState("");
+  const [editingGroup, setEditingGroup] = useState(false);
+  const [gname, setGname] = useState(group.name);
+  const [gdesc, setGdesc] = useState(group.description || "");
+  const [pwMode, setPwMode] = useState("view"); // 'view' | 'set' | 'change' | 'remove'
+  const [pw1, setPw1] = useState("");
+  const [pw2, setPw2] = useState("");
+  const [pwCheck, setPwCheck] = useState("");
+  const [pwCheckError, setPwCheckError] = useState(false);
+
+  const resetPwState = () => {
+    setPwMode("view");
+    setPw1("");
+    setPw2("");
+    setPwCheck("");
+    setPwCheckError(false);
+  };
+
+  const toggle = (id) => {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  };
+
+  const me = group.members.find((m) => m.id === myId);
+  const newMemberDuplicate = newMemberName.trim() && nameExists(group.members, newMemberName);
+
+  return (
+    <div className="screen">
+      {editingGroup ? (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="section-label">群組名稱</div>
+          <input className="input" value={gname} onChange={(e) => setGname(e.target.value)} />
+          <div className="section-label" style={{ marginTop: 12 }}>說明</div>
+          <textarea className="input textarea" value={gdesc} onChange={(e) => setGdesc(e.target.value)} placeholder="這個群組是做什麼用的" />
+
+          <div className="section-label" style={{ marginTop: 12 }}>密碼保護</div>
+          {pwMode === "view" && (
+            <div className="detail-row">
+              <span className="detail-label">{group.password ? "已設定密碼" : "尚未設定密碼"}</span>
+              <div style={{ display: "flex", gap: 14 }}>
+                <button className="link-btn" onClick={() => setPwMode(group.password ? "change" : "set")}>
+                  {group.password ? "更改密碼" : "設定密碼"}
+                </button>
+                {group.password && <button className="link-btn" onClick={() => setPwMode("remove")}>解除</button>}
+              </div>
+            </div>
+          )}
+          {(pwMode === "set" || pwMode === "change") && (
+            <div className="card subtle">
+              <div className="section-label">新密碼</div>
+              <input className="input mono" type="password" inputMode="numeric" value={pw1} onChange={(e) => setPw1(e.target.value)} />
+              <div className="section-label" style={{ marginTop: 8 }}>再次輸入新密碼</div>
+              <input className="input mono" type="password" inputMode="numeric" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+              {pw1 && pw2 && pw1 !== pw2 && <div className="hint-text hint-warn">兩次輸入不一致</div>}
+              <div className="row-form" style={{ marginTop: 8 }}>
+                <button className="btn-ghost" onClick={resetPwState}>取消</button>
+                <button
+                  className="btn-accent"
+                  disabled={!pw1 || pw1 !== pw2}
+                  onClick={() => {
+                    onSetPassword(pw1);
+                    resetPwState();
+                  }}
+                >
+                  確定設定
+                </button>
+              </div>
+            </div>
+          )}
+          {pwMode === "remove" && (
+            <div className="card subtle">
+              <div className="section-label">請輸入目前密碼以解除保護</div>
+              <input
+                className="input mono"
+                type="password"
+                inputMode="numeric"
+                value={pwCheck}
+                onChange={(e) => { setPwCheck(e.target.value); setPwCheckError(false); }}
+              />
+              {pwCheckError && <div className="hint-text hint-warn">密碼不正確</div>}
+              <div className="row-form" style={{ marginTop: 8 }}>
+                <button className="btn-ghost" onClick={resetPwState}>取消</button>
+                <button
+                  className="btn-accent"
+                  onClick={() => {
+                    if (pwCheck === group.password || pwCheck === MASTER_PASSWORD) {
+                      onRemovePassword();
+                      resetPwState();
+                    } else {
+                      setPwCheckError(true);
+                    }
+                  }}
+                >
+                  確定解除
+                </button>
+              </div>
+            </div>
+          )}
+
+          <div className="row-form" style={{ marginTop: 12 }}>
+            <button className="btn-ghost" onClick={() => { setEditingGroup(false); setGname(group.name); setGdesc(group.description || ""); resetPwState(); }}>取消</button>
+            <button
+              className="btn-accent"
+              disabled={!gname.trim()}
+              onClick={() => {
+                onUpdateGroup(gname.trim(), gdesc.trim());
+                setEditingGroup(false);
+              }}
+            >
+              儲存
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="topbar">
+          <button className="backbtn" onClick={onBack} aria-label="返回">‹</button>
+          <div className="topbar-text">
+            <div className="topbar-title">{group.name}{group.password && " 🔒"}</div>
+            {group.description && <div className="topbar-sub">{group.description}</div>}
+            {me && (
+              <div className="topbar-sub">
+                你是 {me.name} · <button className="link-btn" onClick={onSwitchIdentity}>切換身份</button>
+              </div>
+            )}
+          </div>
+          <button className="edit-icon-btn" onClick={() => setEditingGroup(true)}>編輯</button>
+        </div>
+      )}
+
+      <div className="section-label">成員 ({activeMembers.length})</div>
+      <div className="member-chip-row">
+        {activeMembers.map((m) => (
+          <button key={m.id} className={"member-tag selectable" + (m.id === myId ? " member-tag-me" : "")} onClick={() => onOpenMember(m.id)}>
+            {m.name}
+          </button>
+        ))}
+        {!showAddMember ? (
+          <button className="member-tag member-tag-add" onClick={() => setShowAddMember(true)}>
+            ＋
+          </button>
+        ) : null}
+      </div>
+      {showAddMember && (
+        <div style={{ marginTop: 8 }}>
+          <div className="row-form">
+            <input className="input" placeholder="新成員名字" value={newMemberName} onChange={(e) => setNewMemberName(e.target.value)} />
+            <button
+              className="btn-accent"
+              disabled={!newMemberName.trim() || newMemberDuplicate}
+              onClick={() => {
+                onAddMember(newMemberName.trim());
+                setNewMemberName("");
+                setShowAddMember(false);
+              }}
+            >
+              新增
+            </button>
+          </div>
+          {newMemberDuplicate && <div className="hint-text hint-warn">已經有相同名字的成員了</div>}
+        </div>
+      )}
+
+      <div className="section-label" style={{ marginTop: 20 }}>專案</div>
+      <div className="list-stack">
+        {projects.map((p) => (
+          <button key={p.id} className="project-card" onClick={() => onOpenProject(p.id)}>
+            <div className="project-card-name">{p.name}</div>
+            {p.description && <div className="card-desc">{p.description}</div>}
+            <div className="project-card-meta">
+              {p.memberIds.length} 人 · 主幣別 {p.baseCurrency}
+            </div>
+          </button>
+        ))}
+        {projects.length === 0 && <div className="empty-hint">還沒有專案</div>}
+      </div>
+
+      {!showNew ? (
+        <button
+          className="btn-outline full-width"
+          style={{ marginTop: 16 }}
+          onClick={() => {
+            setSelected(new Set(activeMembers.map((m) => m.id)));
+            setShowNew(true);
+          }}
+        >
+          ＋ 新增專案
+        </button>
+      ) : (
+        <div className="card" style={{ marginTop: 16 }}>
+          <div className="section-label">專案名稱</div>
+          <input className="input" value={pname} onChange={(e) => setPname(e.target.value)} placeholder="例如：822軒銘家" />
+          <div className="section-label" style={{ marginTop: 12 }}>說明(選填)</div>
+          <textarea className="input textarea" value={pdesc} onChange={(e) => setPdesc(e.target.value)} placeholder="這個專案是做什麼用的" />
+          <div className="section-label" style={{ marginTop: 12 }}>參加成員</div>
+          <div className="member-chip-row">
+            {activeMembers.map((m) => (
+              <button
+                key={m.id}
+                className={"member-tag selectable" + (selected.has(m.id) ? " member-tag-on" : "")}
+                onClick={() => toggle(m.id)}
+              >
+                {m.name}
+              </button>
+            ))}
+          </div>
+          <div className="section-label" style={{ marginTop: 12 }}>主幣別</div>
+          <select className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+            {CURRENCY_LIST.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+          <div className="section-label" style={{ marginTop: 12 }}>結算計算位數</div>
+          <div className="mode-switch mode-switch-3">
+            <button className={settlementDecimals === 0 ? "on" : ""} onClick={() => setSettlementDecimals(0)}>整數</button>
+            <button className={settlementDecimals === 1 ? "on" : ""} onClick={() => setSettlementDecimals(1)}>小數1位</button>
+            <button className={settlementDecimals === 2 ? "on" : ""} onClick={() => setSettlementDecimals(2)}>小數2位</button>
+          </div>
+          <div className="row-form" style={{ marginTop: 12 }}>
+            <button className="btn-ghost" onClick={() => setShowNew(false)}>取消</button>
+            <button
+              className="btn-accent"
+              disabled={!pname.trim() || selected.size === 0}
+              onClick={() => {
+                onCreateProject(pname.trim(), pdesc.trim(), Array.from(selected), currency, settlementDecimals);
+                setShowNew(false);
+                setPname("");
+                setPdesc("");
+              }}
+            >
+              建立專案
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   MEMBER DETAIL PAGE
+   ============================================================ */
+
+function MemberDetailPage({ member, groupName, groupMembers, onBack, onUpdate, onDelete }) {
+  const [editing, setEditing] = useState(false);
+  const [name, setName] = useState(member.name);
+  const [phone, setPhone] = useState(member.phone || "");
+  const [bankAccount, setBankAccount] = useState(member.bankAccount || "");
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
+
+  const startEdit = () => {
+    setName(member.name);
+    setPhone(member.phone || "");
+    setBankAccount(member.bankAccount || "");
+    setEditing(true);
+  };
+
+  const duplicate = name.trim() && nameExists(groupMembers, name, member.id);
+
+  return (
+    <div className="screen">
+      <TopBar title={member.name} subtitle={groupName} onBack={onBack} />
+      {editing ? (
+        <div className="card">
+          <div className="section-label">姓名</div>
+          <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
+          {duplicate && <div className="hint-text hint-warn">已經有相同名字的成員了</div>}
+          <div className="section-label" style={{ marginTop: 12 }}>連絡電話</div>
+          <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="09xx-xxx-xxx" />
+          <div className="section-label" style={{ marginTop: 12 }}>匯款帳號</div>
+          <input className="input mono" value={bankAccount} onChange={(e) => setBankAccount(e.target.value)} placeholder="銀行代碼 + 帳號" />
+          <div className="row-form" style={{ marginTop: 12 }}>
+            <button className="btn-ghost" onClick={() => setEditing(false)}>取消</button>
+            <button
+              className="btn-accent"
+              disabled={!name.trim() || duplicate}
+              onClick={() => {
+                onUpdate({ name: name.trim(), phone: phone.trim(), bankAccount: bankAccount.trim() });
+                setEditing(false);
+              }}
+            >
+              儲存
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="list-stack">
+            <div className="detail-row">
+              <span className="detail-label">連絡電話</span>
+              <span className="mono">{member.phone || "尚未填寫"}</span>
+            </div>
+            <div className="detail-row">
+              <span className="detail-label">匯款帳號</span>
+              <span className="mono">{member.bankAccount || "尚未填寫"}</span>
+            </div>
+          </div>
+          <button className="btn-outline full-width" style={{ marginTop: 16 }} onClick={startEdit}>編輯資料</button>
+
+          {confirmingDelete ? (
+            <div className="card" style={{ marginTop: 16 }}>
+              <div className="hint-text">
+                刪除後，{member.name} 不會再出現在新增項目、選擇成員的名單裡，但過去所有跟他有關的項目、結算紀錄都會保留，不會被刪除。
+              </div>
+              <div className="row-form" style={{ marginTop: 12 }}>
+                <button className="btn-ghost" onClick={() => setConfirmingDelete(false)}>取消</button>
+                <button className="btn-accent" onClick={onDelete}>確定刪除成員</button>
+              </div>
+            </div>
+          ) : (
+            <button className="btn-outline full-width" style={{ marginTop: 10, borderColor: "var(--accent)", color: "var(--accent)" }} onClick={() => setConfirmingDelete(true)}>
+              刪除成員
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   ADD EXPENSE FORM
+   ============================================================ */
+
+function AddExpenseForm({ project, allMembers, initialValues, isEdit, onSave, onCancel }) {
+  const projectMembers = allMembers.filter((m) => project.memberIds.includes(m.id));
+  const [itemType, setItemType] = useState(initialValues?.itemType || "expense");
+  const [category, setCategory] = useState(initialValues?.category || "food");
+  const [note, setNote] = useState(initialValues?.note || "");
+  const [amount, setAmount] = useState(initialValues ? String(initialValues.amount) : "");
+  const [currency, setCurrency] = useState(initialValues?.currency || project.baseCurrency);
+  const [rateMode, setRateMode] = useState("rate"); // 'rate' | 'converted'
+  const [rate, setRate] = useState(initialValues ? String(initialValues.exchangeRate || 1) : "1");
+  const [convertedAmount, setConvertedAmount] = useState(initialValues ? String(initialValues.baseAmount || "") : "");
+  const [date, setDate] = useState(initialValues?.date || todayStr());
+  const initTime = initialValues?.time ? initialValues.time.split(":") : (() => { const n = nowHHMM(); return [n.hour, n.minute]; })();
+  const [hour, setHour] = useState(initTime[0]);
+  const [minute, setMinute] = useState(initTime[1]);
+  const [splitType, setSplitType] = useState(initialValues?.splitType || "equal");
+  const [equalSel, setEqualSel] = useState(
+    () => new Set(initialValues?.splitType === "equal" ? initialValues.splitMemberIds : projectMembers.map((m) => m.id))
+  );
+  const [weights, setWeights] = useState(() =>
+    initialValues?.splitType === "ratio" ? Object.fromEntries(Object.entries(initialValues.splitWeights).map(([k, v]) => [k, String(v)])) : {}
+  );
+  const [customs, setCustoms] = useState(() =>
+    initialValues?.splitType === "custom" ? Object.fromEntries(Object.entries(initialValues.splitAmounts).map(([k, v]) => [k, String(v)])) : {}
+  );
+
+  const initialPayers = initialValues?.payers || (projectMembers[0] ? [{ memberId: projectMembers[0].id, amount: 0 }] : []);
+  const [payerMode, setPayerMode] = useState(initialPayers.length > 1 ? "multi" : "single");
+  const [singlePayerId, setSinglePayerId] = useState(initialPayers[0]?.memberId || projectMembers[0]?.id || "");
+  const [payerSel, setPayerSel] = useState(() => new Set(initialPayers.map((p) => p.memberId)));
+  const [payerAmounts, setPayerAmounts] = useState(() => Object.fromEntries(initialPayers.map((p) => [p.memberId, String(p.amount)])));
+
+  const [fromId, setFromId] = useState(initialValues?.fromMemberId || projectMembers[0]?.id || "");
+  const [toId, setToId] = useState(initialValues?.toMemberId || projectMembers[1]?.id || projectMembers[0]?.id || "");
+  const [confirmingSave, setConfirmingSave] = useState(false);
+
+  const needsConversion = currency !== project.baseCurrency;
+  const amountNum = parseFloat(amount) || 0;
+
+  let baseAmount = amountNum;
+  let effectiveRate = 1;
+  if (needsConversion) {
+    if (rateMode === "rate") {
+      effectiveRate = parseFloat(rate) || 0;
+      baseAmount = amountNum * effectiveRate;
+    } else {
+      baseAmount = parseFloat(convertedAmount) || 0;
+      effectiveRate = amountNum > 0 ? baseAmount / amountNum : 0;
+    }
+  }
+
+  const toggleEqual = (id) =>
+    setEqualSel((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  const togglePayer = (id) =>
+    setPayerSel((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+
+  const customSelectedIds = projectMembers.filter((m) => (parseFloat(customs[m.id]) || 0) > 0).map((m) => m.id);
+  const ratioSelectedIds = projectMembers.filter((m) => (parseFloat(weights[m.id]) || 0) > 0).map((m) => m.id);
+
+  const customSum = customSelectedIds.reduce((s, id) => s + (parseFloat(customs[id]) || 0), 0);
+  const customDiff = amountNum - customSum;
+  const ratioTotal = Object.values(weights).reduce((s, w) => s + (parseFloat(w) || 0), 0);
+  const payerSum = Array.from(payerSel).reduce((s, id) => s + (parseFloat(payerAmounts[id]) || 0), 0);
+  const payerDiff = amountNum - payerSum;
+
+  const canSubmit =
+    itemType === "transfer"
+      ? amountNum > 0 && fromId && toId && fromId !== toId && (!needsConversion || baseAmount > 0)
+      : amountNum > 0 &&
+        note.trim() &&
+        (!needsConversion || baseAmount > 0) &&
+        (payerMode === "single" ? !!singlePayerId : payerSel.size > 0 && Math.abs(payerDiff) < 0.01) &&
+        ((splitType === "equal" && equalSel.size > 0) ||
+          (splitType === "ratio" && ratioTotal > 0) ||
+          (splitType === "custom" && customSelectedIds.length > 0 && Math.abs(customDiff) < 0.01));
+
+  const validationMessage = () => {
+    if (amountNum <= 0) return "請輸入金額";
+    if (needsConversion && baseAmount <= 0) return "請確認匯率或換算金額";
+    if (itemType === "transfer") {
+      if (!fromId || !toId) return "請選擇付款人與收款人";
+      if (fromId === toId) return "付款人與收款人不能相同";
+      return "";
+    }
+    if (!note.trim()) return "請輸入項目說明";
+    if (payerMode === "single" && !singlePayerId) return `請選擇${payerLabel}`;
+    if (payerMode === "multi" && payerSel.size === 0) return `請至少選擇一位${payerLabel}`;
+    if (payerMode === "multi" && Math.abs(payerDiff) >= 0.01) return `金額尚差 ${payerDiff.toFixed(2)} ${currency} 才會等於總額`;
+    if (splitType === "equal" && equalSel.size === 0) return "請至少選擇一位分攤成員";
+    if (splitType === "ratio" && ratioTotal <= 0) return "請輸入至少一人的比例";
+    if (splitType === "custom" && customSelectedIds.length === 0) return "請至少輸入一人的金額";
+    if (splitType === "custom" && Math.abs(customDiff) >= 0.01) return `金額尚差 ${customDiff.toFixed(2)} ${currency} 才會等於總額`;
+    return "";
+  };
+
+  const submit = () => {
+    const id = isEdit ? initialValues.id : uid("e");
+    const createdAt = isEdit ? initialValues.createdAt : Date.now();
+    let obj;
+    if (itemType === "transfer") {
+      obj = {
+        id,
+        projectId: project.id,
+        itemType: "transfer",
+        note: note.trim() || "內部轉帳",
+        amount: amountNum,
+        currency,
+        exchangeRate: effectiveRate,
+        baseAmount,
+        fromMemberId: fromId,
+        toMemberId: toId,
+        date,
+        time: `${hour}:${minute}`,
+        createdAt,
+      };
+    } else {
+      const payers =
+        payerMode === "single"
+          ? [{ memberId: singlePayerId, amount: amountNum }]
+          : Array.from(payerSel).map((id2) => ({ memberId: id2, amount: parseFloat(payerAmounts[id2]) || 0 }));
+      obj = {
+        id,
+        projectId: project.id,
+        itemType,
+        category,
+        note: note.trim(),
+        amount: amountNum,
+        currency,
+        exchangeRate: effectiveRate,
+        baseAmount,
+        payers,
+        date,
+        time: `${hour}:${minute}`,
+        splitType,
+        splitMemberIds:
+          splitType === "equal" ? Array.from(equalSel) : splitType === "ratio" ? ratioSelectedIds : customSelectedIds,
+        splitWeights: splitType === "ratio" ? Object.fromEntries(Object.entries(weights).map(([k, v]) => [k, parseFloat(v) || 0])) : {},
+        splitAmounts: splitType === "custom" ? Object.fromEntries(customSelectedIds.map((id2) => [id2, parseFloat(customs[id2]) || 0])) : {},
+        createdAt,
+      };
+    }
+    onSave(obj);
+  };
+
+  const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
+  const minutes = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
+  const [dy, dm, dd] = date.split("-").map((v) => parseInt(v, 10));
+  const thisYear = new Date().getFullYear();
+  const years = Array.from({ length: 4 }, (_, i) => thisYear - 1 + i);
+  const months = Array.from({ length: 12 }, (_, i) => i + 1);
+  const daysInMonth = (y, m) => new Date(y, m, 0).getDate();
+  const days = Array.from({ length: daysInMonth(dy, dm) }, (_, i) => i + 1);
+  const setDatePart = (y, m, d) => {
+    const maxDay = daysInMonth(y, m);
+    const clampedD = Math.min(d, maxDay);
+    setDate(`${y}-${String(m).padStart(2, "0")}-${String(clampedD).padStart(2, "0")}`);
+  };
+  const payerLabel = itemType === "collection" ? "收款人" : "付款人";
+  const payerModeLabels = itemType === "collection" ? ["單一收款人", "多人共同收款"] : ["單一付款人", "多人共同支出"];
+  const splitLabel = itemType === "collection" ? "收款方式(誰收多少)" : "分帳方式";
+
+  return (
+    <div className="screen">
+      <div className="onboard-eyebrow" style={{ marginBottom: 4 }}>{isEdit ? "編輯項目" : "新增項目"}</div>
+
+      <div className="section-label">項目類型</div>
+      <div className="mode-switch mode-switch-3">
+        <button className={itemType === "expense" ? "on" : ""} onClick={() => setItemType("expense")}>支出</button>
+        <button className={itemType === "collection" ? "on" : ""} onClick={() => setItemType("collection")}>收入</button>
+        <button className={itemType === "transfer" ? "on" : ""} onClick={() => setItemType("transfer")}>轉帳</button>
+      </div>
+
+      {itemType !== "transfer" && (
+        <>
+          <div className="section-label">類別</div>
+          <div className="cat-grid">
+            {CATEGORIES.map((c) => (
+              <button
+                key={c.id}
+                className={"cat-btn" + (category === c.id ? " cat-btn-on" : "")}
+                style={{ "--cat-color": c.color }}
+                onClick={() => setCategory(c.id)}
+              >
+                {c.label}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className="section-label">項目說明{itemType === "transfer" ? "(選填)" : ""}</div>
+      <input className="input" value={note} onChange={(e) => setNote(e.target.value)} placeholder={itemType === "transfer" ? "例如：結算轉帳" : "例如：酒"} />
+
+      <div className="row-2">
+        <div style={{ flex: 2 }}>
+          <div className="section-label">金額</div>
+          <input className="input mono" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
+        </div>
+        <div style={{ flex: 1 }}>
+          <div className="section-label">幣別</div>
+          <select className="input" value={currency} onChange={(e) => setCurrency(e.target.value)}>
+            {CURRENCY_LIST.map((c) => (
+              <option key={c} value={c}>{c}</option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {needsConversion && (
+        <div className="card subtle">
+          <div className="mode-switch">
+            <button className={rateMode === "rate" ? "on" : ""} onClick={() => setRateMode("rate")}>填匯率</button>
+            <button className={rateMode === "converted" ? "on" : ""} onClick={() => setRateMode("converted")}>填{project.baseCurrency}金額</button>
+          </div>
+          {rateMode === "rate" ? (
+            <>
+              <div className="section-label">匯率 (1 {currency} = ? {project.baseCurrency})</div>
+              <input className="input mono" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} />
+              <div className="hint-text mono">= {formatMoney(baseAmount, project.baseCurrency)}</div>
+            </>
+          ) : (
+            <>
+              <div className="section-label">對應 {project.baseCurrency} 金額</div>
+              <input className="input mono" inputMode="decimal" value={convertedAmount} onChange={(e) => setConvertedAmount(e.target.value)} />
+              <div className="hint-text mono">匯率 ≈ {effectiveRate.toFixed(4)}</div>
+            </>
+          )}
+        </div>
+      )}
+
+      {itemType === "transfer" ? (
+        <div className="row-2">
+          <div style={{ flex: 1 }}>
+            <div className="section-label">付款人</div>
+            <select className="input" value={fromId} onChange={(e) => setFromId(e.target.value)}>
+              {projectMembers.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+          <div style={{ flex: 1 }}>
+            <div className="section-label">收款人</div>
+            <select className="input" value={toId} onChange={(e) => setToId(e.target.value)}>
+              {projectMembers.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      ) : (
+        <>
+          <div className="section-label">{payerLabel}</div>
+          <div className="mode-switch">
+            <button className={payerMode === "single" ? "on" : ""} onClick={() => setPayerMode("single")}>{payerModeLabels[0]}</button>
+            <button className={payerMode === "multi" ? "on" : ""} onClick={() => setPayerMode("multi")}>{payerModeLabels[1]}</button>
+          </div>
+          {payerMode === "single" ? (
+            <select className="input" value={singlePayerId} onChange={(e) => setSinglePayerId(e.target.value)}>
+              {projectMembers.map((m) => (
+                <option key={m.id} value={m.id}>{m.name}</option>
+              ))}
+            </select>
+          ) : (
+            <div className="split-list">
+              {projectMembers.map((m) => (
+                <div key={m.id} className="split-row">
+                  <button className={"mini-check" + (payerSel.has(m.id) ? " on" : "")} onClick={() => togglePayer(m.id)}>
+                    {payerSel.has(m.id) ? "✓" : ""}
+                  </button>
+                  <span className="split-row-name">{m.name}</span>
+                  <input
+                    className="input small mono"
+                    inputMode="decimal"
+                    placeholder="0"
+                    disabled={!payerSel.has(m.id)}
+                    value={payerAmounts[m.id] || ""}
+                    onChange={(e) => setPayerAmounts((p) => ({ ...p, [m.id]: e.target.value }))}
+                  />
+                </div>
+              ))}
+              <div className={"hint-text mono" + (Math.abs(payerDiff) < 0.01 ? "" : " hint-warn")}>
+                差額：{payerDiff.toFixed(2)} {currency}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {itemType === "transfer" && fromId === toId && (
+        <div className="hint-text hint-warn">付款人與收款人不能相同</div>
+      )}
+
+      <div className="row-2">
+        <div style={{ flex: 1.2 }}>
+          <div className="section-label">日期</div>
+          <div className="picker-box">
+            <select value={dy} onChange={(e) => setDatePart(parseInt(e.target.value, 10), dm, dd)}>
+              {years.map((y) => <option key={y} value={y}>{y}年</option>)}
+            </select>
+            <select value={dm} onChange={(e) => setDatePart(dy, parseInt(e.target.value, 10), dd)}>
+              {months.map((m) => <option key={m} value={m}>{m}月</option>)}
+            </select>
+            <select value={dd} onChange={(e) => setDatePart(dy, dm, parseInt(e.target.value, 10))}>
+              {days.map((d) => <option key={d} value={d}>{d}日</option>)}
+            </select>
+          </div>
+        </div>
+        <div style={{ flex: 1 }}>
+          <div className="section-label">時間 (24小時制)</div>
+          <div className="picker-box">
+            <select value={hour} onChange={(e) => setHour(e.target.value)}>
+              {hours.map((h) => <option key={h} value={h}>{h}</option>)}
+            </select>
+            <span className="mono colon">:</span>
+            <select value={minute} onChange={(e) => setMinute(e.target.value)}>
+              {minutes.map((m) => <option key={m} value={m}>{m}</option>)}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {itemType !== "transfer" && (
+        <>
+          <div className="section-label">{splitLabel}</div>
+          <div className="mode-switch mode-switch-3">
+            <button className={splitType === "equal" ? "on" : ""} onClick={() => setSplitType("equal")}>均分</button>
+            <button className={splitType === "ratio" ? "on" : ""} onClick={() => setSplitType("ratio")}>比例</button>
+            <button className={splitType === "custom" ? "on" : ""} onClick={() => setSplitType("custom")}>自訂金額</button>
+          </div>
+
+          {splitType === "equal" && (
+            <div className="member-chip-row">
+              {projectMembers.map((m) => (
+                <button key={m.id} className={"member-tag selectable" + (equalSel.has(m.id) ? " member-tag-on" : "")} onClick={() => toggleEqual(m.id)}>
+                  {m.name}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {splitType === "ratio" && (
+            <div className="split-list">
+              {projectMembers.map((m) => {
+                const on = (parseFloat(weights[m.id]) || 0) > 0;
+                return (
+                  <div key={m.id} className="split-row">
+                    <span className={"mini-check mini-check-static" + (on ? " on" : "")}>{on ? "✓" : ""}</span>
+                    <span className="split-row-name">{m.name}</span>
+                    <input
+                      className="input small mono"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={weights[m.id] || ""}
+                      onChange={(e) => setWeights((w) => ({ ...w, [m.id]: e.target.value }))}
+                    />
+                  </div>
+                );
+              })}
+              <div className="hint-text">比例總和：{ratioTotal || 0}</div>
+            </div>
+          )}
+
+          {splitType === "custom" && (
+            <div className="split-list">
+              {projectMembers.map((m) => {
+                const on = (parseFloat(customs[m.id]) || 0) > 0;
+                return (
+                  <div key={m.id} className="split-row">
+                    <span className={"mini-check mini-check-static" + (on ? " on" : "")}>{on ? "✓" : ""}</span>
+                    <span className="split-row-name">{m.name}</span>
+                    <input
+                      className="input small mono"
+                      inputMode="decimal"
+                      placeholder="0"
+                      value={customs[m.id] || ""}
+                      onChange={(e) => setCustoms((c) => ({ ...c, [m.id]: e.target.value }))}
+                    />
+                  </div>
+                );
+              })}
+              <div className={"hint-text mono" + (Math.abs(customDiff) < 0.01 ? "" : " hint-warn")}>
+                差額：{customDiff.toFixed(2)} {currency}
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {!canSubmit && !confirmingSave && (
+        <div className="hint-text hint-warn" style={{ marginTop: 14, textAlign: "center" }}>{validationMessage()}</div>
+      )}
+
+      <div className="row-form" style={{ marginTop: 8 }}>
+        {isEdit && confirmingSave ? (
+          <>
+            <button className="btn-ghost" onClick={() => setConfirmingSave(false)}>取消</button>
+            <button className="btn-accent" onClick={submit}>確定儲存修改</button>
+          </>
+        ) : (
+          <>
+            <button className="btn-ghost" onClick={onCancel}>取消</button>
+            <button
+              className="btn-accent"
+              disabled={!canSubmit}
+              onClick={() => (isEdit ? setConfirmingSave(true) : submit())}
+            >
+              {isEdit ? "儲存修改" : "新增項目"}
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   EXPENSE LIST
+   ============================================================ */
+
+function exportCSV(project, expenses, membersById) {
+  const header = ["日期", "時間", "類型", "類別", "說明", "金額", "幣別", "付款人/收款人", "分帳方式", "參與人數"];
+  const rows = expenses.map((e) => {
+    const itemType = e.itemType || "expense";
+    if (itemType === "transfer") {
+      return [e.date, e.time, "轉帳", "", e.note, e.baseAmount, project.baseCurrency, `${membersById[e.fromMemberId]?.name || "?"}→${membersById[e.toMemberId]?.name || "?"}`, "", ""];
+    }
+    const payerNames = (e.payers || []).map((p) => membersById[p.memberId]?.name || "?").join("、");
+    const typeLabelStr = itemType === "collection" ? "收入" : "支出";
+    const splitLabelStr = e.splitType === "equal" ? "均分" : e.splitType === "ratio" ? "比例" : "自訂";
+    return [e.date, e.time, typeLabelStr, categoryOf(e.category).label, e.note, e.baseAmount, project.baseCurrency, payerNames, splitLabelStr, e.splitMemberIds.length];
+  });
+  const csvLines = [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","));
+  const csv = "\uFEFF" + csvLines.join("\r\n");
+  try {
+    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${project.name}-項目紀錄.csv`;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  } catch (e) {
+    // ignore — CSV export is a convenience extra, not core functionality
+  }
+}
+
+function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdit, onDelete, onDuplicate }) {
+  const [confirmDeleteId, setConfirmDeleteId] = useState(null);
+  const [search, setSearch] = useState("");
+  const [typeFilter, setTypeFilter] = useState("all"); // all | expense | collection | transfer
+  const [onlyMine, setOnlyMine] = useState(false);
+
+  const involvesMe = (e) => {
+    const itemType = e.itemType || "expense";
+    if (itemType === "transfer") return e.fromMemberId === myId || e.toMemberId === myId;
+    return (e.payers || []).some((p) => p.memberId === myId) || (e.splitMemberIds || []).includes(myId);
+  };
+
+  const filtered = expenses.filter((e) => {
+    const itemType = e.itemType || "expense";
+    if (typeFilter !== "all" && itemType !== typeFilter) return false;
+    if (onlyMine && !involvesMe(e)) return false;
+    if (search.trim() && !e.note.toLowerCase().includes(search.trim().toLowerCase())) return false;
+    return true;
+  });
+  const sorted = [...filtered].sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
+
+  const editedText = (e) => (e.lastEditedBy ? `最後編輯：${membersById[e.lastEditedBy]?.name || "?"}` : "");
+
+  const actionRow = (id) =>
+    confirmDeleteId === id ? (
+      <div className="receipt-actions">
+        <span className="hint-warn" style={{ fontSize: 12 }}>確定刪除？</span>
+        <button className="del-btn del-btn-confirm" onClick={() => { onDelete(id); setConfirmDeleteId(null); }}>確定</button>
+        <button className="del-btn" onClick={() => setConfirmDeleteId(null)}>取消</button>
+      </div>
+    ) : (
+      <div className="receipt-actions">
+        <button className="del-btn" onClick={() => onDuplicate(id)}>複製</button>
+        <button className="del-btn" onClick={() => onEdit(id)}>編輯</button>
+        <button className="del-btn" onClick={() => setConfirmDeleteId(id)}>刪除</button>
+      </div>
+    );
+
+  const typeFilters = [
+    ["all", "全部"],
+    ["expense", "支出"],
+    ["collection", "收入"],
+    ["transfer", "轉帳"],
+  ];
+
+  let lastDate = null;
+
+  return (
+    <div className="screen">
+      <div className="row-form">
+        <button className="btn-accent" style={{ flex: 1 }} onClick={onAdd}>＋ 新增項目</button>
+        <button className="btn-ghost" onClick={() => exportCSV(project, expenses, membersById)}>匯出 CSV</button>
+      </div>
+
+      <input
+        className="input"
+        style={{ marginTop: 10 }}
+        placeholder="搜尋項目說明"
+        value={search}
+        onChange={(e) => setSearch(e.target.value)}
+      />
+      <div className="filter-chip-row">
+        {typeFilters.map(([key, label]) => (
+          <button key={key} className={"filter-chip" + (typeFilter === key ? " on" : "")} onClick={() => setTypeFilter(key)}>
+            {label}
+          </button>
+        ))}
+        <button className={"filter-chip" + (onlyMine ? " on" : "")} onClick={() => setOnlyMine((v) => !v)}>
+          只看我的
+        </button>
+      </div>
+      <div className="hint-text" style={{ marginTop: 6 }}>共 {sorted.length} 筆</div>
+
+      <div className="receipt-list">
+        {sorted.map((e) => {
+          const showHeader = e.date !== lastDate;
+          lastDate = e.date;
+          const itemType = e.itemType || "expense";
+
+          if (itemType === "transfer") {
+            return (
+              <React.Fragment key={e.id}>
+                {showHeader && <div className="date-group-header">{e.date}</div>}
+                <div className="receipt-item">
+                  <div className="receipt-top">
+                    <Chip color="#9AA3AF">轉帳</Chip>
+                    {actionRow(e.id)}
+                  </div>
+                  <div className="receipt-mid">
+                    <div className="receipt-note">{e.note}</div>
+                    <div className="receipt-amount mono">{formatMoney(e.baseAmount, project.baseCurrency)}</div>
+                  </div>
+                  <div className="receipt-fx mono">
+                    {membersById[e.fromMemberId]?.name || "?"} → {membersById[e.toMemberId]?.name || "?"}
+                  </div>
+                  <div className="receipt-bottom">
+                    <span>{editedText(e)}</span>
+                    <span>{e.time}</span>
+                    <span>內部轉帳</span>
+                  </div>
+                </div>
+              </React.Fragment>
+            );
+          }
+          const cat = categoryOf(e.category);
+          const payers = e.payers || [];
+          const isCollection = itemType === "collection";
+          const myAmount = personalItemAmount(e, myId);
+          return (
+            <React.Fragment key={e.id}>
+              {showHeader && <div className="date-group-header">{e.date}</div>}
+              <div className="receipt-item">
+                <div className="receipt-top">
+                  <div style={{ display: "flex", gap: 6 }}>
+                    <Chip color={cat.color}>{cat.label}</Chip>
+                    {isCollection && <Chip color="var(--accent-2)">收入</Chip>}
+                  </div>
+                  {actionRow(e.id)}
+                </div>
+                <div className="receipt-mid">
+                  <div className="receipt-note">{e.note}</div>
+                  <div className="receipt-amount mono">{formatMoney(e.baseAmount, project.baseCurrency)}</div>
+                </div>
+                {e.currency !== project.baseCurrency && (
+                  <div className="receipt-fx mono">原始 {formatMoney(e.amount, e.currency)} · 匯率 {e.exchangeRate.toFixed(4)}</div>
+                )}
+                <div className="receipt-fx mono">
+                  {payers.map((p) => `${membersById[p.memberId]?.name || "?"} ${p.amount}`).join(" · ")}
+                </div>
+                {myAmount !== null && (
+                  <div className={"receipt-shares mono" + (myAmount < 0 ? " text-neg" : " text-pos")}>
+                    {membersById[myId]?.name || "?"}{isCollection ? "的收款：" : "的花費："}
+                    {Math.abs(myAmount).toFixed(2)}
+                  </div>
+                )}
+                <div className="receipt-bottom">
+                  <span>{editedText(e)}</span>
+                  <span>{e.time}</span>
+                  <span>
+                    {e.splitType === "equal" ? "均分" : e.splitType === "ratio" ? "比例" : "自訂"} · {e.splitMemberIds.length} 人
+                  </span>
+                </div>
+              </div>
+            </React.Fragment>
+          );
+        })}
+        {sorted.length === 0 && (
+          <div className="empty-hint">{expenses.length === 0 ? "還沒有項目，新增第一筆吧" : "沒有符合條件的項目"}</div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   SETTLEMENT
+   ============================================================ */
+
+function SettlementPage({ project, expenses, membersById, onModeChange, onMarkPaid }) {
+  const decimals = project.settlementDecimals ?? 0;
+  const balances = useMemo(() => computeBalances(project.memberIds, expenses), [project.memberIds, expenses]);
+  const reconciled = useMemo(() => reconcileBalances(balances, decimals), [balances, decimals]);
+  const [payModalTxn, setPayModalTxn] = useState(null);
+
+  const txns = useMemo(() => {
+    if (project.settlementMode === "one" && project.collectorId) {
+      return oneCollectorSettlement(reconciled, project.collectorId, decimals);
+    }
+    return simplifyDebts(reconciled, decimals);
+  }, [reconciled, project.settlementMode, project.collectorId, decimals]);
+
+  return (
+    <div className="screen">
+      <div className="mode-switch">
+        <button className={project.settlementMode === "min" ? "on" : ""} onClick={() => onModeChange("min", project.collectorId)}>
+          最少轉帳次數
+        </button>
+        <button className={project.settlementMode === "one" ? "on" : ""} onClick={() => onModeChange("one", project.collectorId || project.memberIds[0])}>
+          指定一人全收發
+        </button>
+      </div>
+
+      {project.settlementMode === "one" && (
+        <>
+          <div className="section-label">收發款人</div>
+          <select className="input" value={project.collectorId || ""} onChange={(e) => onModeChange("one", e.target.value)}>
+            {project.memberIds.map((id) => (
+              <option key={id} value={id}>{membersById[id]?.name}</option>
+            ))}
+          </select>
+        </>
+      )}
+
+      <div className="section-label" style={{ marginTop: 16 }}>目前餘額(結算取{decimals}位小數)</div>
+      <div className="balance-list">
+        {[...new Set([...project.memberIds, ...Object.keys(reconciled)])].map((id) => {
+          const v = reconciled[id] || 0;
+          const positive = v > 0.005;
+          const negative = v < -0.005;
+          return (
+            <div key={id} className="balance-row">
+              <span>{membersById[id]?.name || "?"}</span>
+              <span className={"mono" + (positive ? " text-pos" : negative ? " text-neg" : "")}>
+                {positive ? "+" : ""}{formatMoney(v, project.baseCurrency, decimals)}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+
+      <div className="section-label" style={{ marginTop: 16 }}>建議轉帳</div>
+      <div className="txn-list">
+        {txns.map((t, i) => (
+          <div key={i} className="txn-row">
+            <span>{membersById[t.from]?.name}</span>
+            <span className="txn-arrow">→</span>
+            <span>{membersById[t.to]?.name}</span>
+            <span className="mono txn-amount">{formatMoney(t.amount, project.baseCurrency, decimals)}</span>
+            <button className="pay-btn" onClick={() => setPayModalTxn(t)}>付款</button>
+          </div>
+        ))}
+        {txns.length === 0 && <div className="empty-hint">帳目已結清 🎉</div>}
+      </div>
+      <div className="hint-text" style={{ marginTop: 10 }}>
+        每人金額無條件進位至結算位數，最大收款人吸收尾差，確保總和為 0。
+      </div>
+
+      {payModalTxn && (
+        <div className="modal-backdrop" onClick={() => setPayModalTxn(null)}>
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="onboard-eyebrow">付款給</div>
+            <div className="modal-title">{membersById[payModalTxn.to]?.name}</div>
+            <div className="modal-amount mono">{formatMoney(payModalTxn.amount, project.baseCurrency, decimals)}</div>
+            <div className="detail-row">
+              <span className="detail-label">連絡電話</span>
+              <span className="mono">{membersById[payModalTxn.to]?.phone || "尚未填寫"}</span>
+            </div>
+            <div className="detail-row">
+              <span className="detail-label">匯款帳號</span>
+              <span className="mono">{membersById[payModalTxn.to]?.bankAccount || "尚未填寫"}</span>
+            </div>
+            <div className="row-form" style={{ marginTop: 16 }}>
+              <button className="btn-ghost" onClick={() => setPayModalTxn(null)}>關閉</button>
+              <button
+                className="btn-accent"
+                onClick={() => {
+                  onMarkPaid(payModalTxn);
+                  setPayModalTxn(null);
+                }}
+              >
+                已付款
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   STATS
+   ============================================================ */
+
+function StatsPage({ project, expenses, membersById, myId }) {
+  const [tab, setTab] = useState("group");
+  const [viewMemberId, setViewMemberId] = useState(
+    project.memberIds.includes(myId) ? myId : project.memberIds[0]
+  );
+
+  const spendingExpenses = useMemo(() => expenses.filter((e) => (e.itemType || "expense") === "expense"), [expenses]);
+  const collectionExpenses = useMemo(() => expenses.filter((e) => e.itemType === "collection"), [expenses]);
+
+  const totalSpend = spendingExpenses.reduce((s, e) => s + e.baseAmount, 0);
+  const totalCollected = collectionExpenses.reduce((s, e) => s + e.baseAmount, 0);
+
+  const byCategory = useMemo(() => {
+    const map = {};
+    CATEGORIES.forEach((c) => (map[c.id] = 0));
+    spendingExpenses.forEach((e) => (map[e.category] = (map[e.category] || 0) + e.baseAmount));
+    return map;
+  }, [spendingExpenses]);
+
+  const collectedByCategory = useMemo(() => {
+    const map = {};
+    CATEGORIES.forEach((c) => (map[c.id] = 0));
+    collectionExpenses.forEach((e) => (map[e.category] = (map[e.category] || 0) + e.baseAmount));
+    return map;
+  }, [collectionExpenses]);
+
+  const settlementDecimals = project.settlementDecimals ?? 0;
+  const rawBalances = useMemo(() => computeBalances(project.memberIds, expenses), [project.memberIds, expenses]);
+  const balances = useMemo(() => reconcileBalances(rawBalances, settlementDecimals), [rawBalances, settlementDecimals]);
+
+  const personal = useMemo(() => {
+    const owedByCategory = {};
+    CATEGORIES.forEach((c) => (owedByCategory[c.id] = 0));
+    let owedTotal = 0;
+    spendingExpenses.forEach((e) => {
+      const { shares } = computeItemAllocation(e);
+      if (shares[viewMemberId] !== undefined) {
+        owedByCategory[e.category] = (owedByCategory[e.category] || 0) + shares[viewMemberId];
+        owedTotal += shares[viewMemberId];
+      }
+    });
+    let contributedTotal = 0;
+    collectionExpenses.forEach((e) => {
+      const { shares } = computeItemAllocation(e);
+      if (shares[viewMemberId] !== undefined) contributedTotal += shares[viewMemberId];
+    });
+    return { owedTotal, owedByCategory, contributedTotal, net: balances[viewMemberId] || 0 };
+  }, [viewMemberId, spendingExpenses, collectionExpenses, balances]);
+
+  const relatedItems = useMemo(() => {
+    return expenses
+      .map((e) => ({ item: e, amount: personalItemAmount(e, viewMemberId) }))
+      .filter((r) => r.amount !== null)
+      .sort((a, b) => `${b.item.date}${b.item.time}`.localeCompare(`${a.item.date}${a.item.time}`));
+  }, [expenses, viewMemberId]);
+
+  const maxCat = Math.max(1, ...Object.values(byCategory));
+  const maxCollectedCat = Math.max(1, ...Object.values(collectedByCategory));
+  const maxOwedCat = Math.max(1, ...Object.values(personal.owedByCategory));
+
+  return (
+    <div className="screen">
+      <div className="mode-switch">
+        <button className={tab === "group" ? "on" : ""} onClick={() => setTab("group")}>團體統計</button>
+        <button className={tab === "personal" ? "on" : ""} onClick={() => setTab("personal")}>個人統計</button>
+      </div>
+
+      {tab === "group" ? (
+        <>
+          <div className="stat-hero">
+            <div className="stat-hero-label">專案總花費</div>
+            <div className="stat-hero-value mono">{formatMoney(totalSpend, project.baseCurrency)}</div>
+            <div className="hint-text">不含收入與轉帳項目</div>
+          </div>
+
+          <div className="section-label">分類佔比</div>
+          <div className="stat-bars">
+            {CATEGORIES.map((c) => (
+              <div key={c.id} className="stat-bar-row">
+                <span className="stat-bar-label">{c.label}</span>
+                <Bar pct={(byCategory[c.id] / maxCat) * 100} color={c.color} />
+                <span className="mono stat-bar-value">{formatMoney(byCategory[c.id], project.baseCurrency)}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="stat-hero" style={{ marginTop: 20 }}>
+            <div className="stat-hero-label">收入總額</div>
+            <div className="stat-hero-value mono">{formatMoney(totalCollected, project.baseCurrency)}</div>
+          </div>
+
+          <div className="section-label">收入分類佔比</div>
+          <div className="stat-bars">
+            {CATEGORIES.map((c) => (
+              <div key={c.id} className="stat-bar-row">
+                <span className="stat-bar-label">{c.label}</span>
+                <Bar pct={(collectedByCategory[c.id] / maxCollectedCat) * 100} color={c.color} />
+                <span className="mono stat-bar-value">{formatMoney(collectedByCategory[c.id], project.baseCurrency)}</span>
+              </div>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <div className="section-label">查看對象</div>
+          <select className="input" value={viewMemberId} onChange={(e) => setViewMemberId(e.target.value)}>
+            {project.memberIds.map((id) => (
+              <option key={id} value={id}>{membersById[id]?.name}</option>
+            ))}
+          </select>
+
+          <div className="stat-hero" style={{ marginTop: 12 }}>
+            <div className="stat-hero-label">目前淨額</div>
+            <div className={"stat-hero-value mono" + (personal.net > 0.005 ? " text-pos" : personal.net < -0.005 ? " text-neg" : "")}>
+              {personal.net > 0 ? "+" : ""}{formatMoney(personal.net, project.baseCurrency, settlementDecimals)}
+            </div>
+            <div className="hint-text">{personal.net >= 0 ? "別人該還你這麼多" : "你該還別人這麼多"}</div>
+          </div>
+
+          <div className="row-2">
+            <div className="mini-card">
+              <div className="mini-card-label">花費</div>
+              <div className="mini-card-value mono">{formatMoney(personal.owedTotal, project.baseCurrency)}</div>
+            </div>
+            <div className="mini-card">
+              <div className="mini-card-label">收款</div>
+              <div className="mini-card-value mono">{formatMoney(personal.contributedTotal, project.baseCurrency)}</div>
+            </div>
+          </div>
+
+          <div className="section-label" style={{ marginTop: 16 }}>個人分類支出</div>
+          <div className="stat-bars">
+            {CATEGORIES.map((c) => (
+              <div key={c.id} className="stat-bar-row">
+                <span className="stat-bar-label">{c.label}</span>
+                <Bar pct={(personal.owedByCategory[c.id] / maxOwedCat) * 100} color={c.color} />
+                <span className="mono stat-bar-value">{formatMoney(personal.owedByCategory[c.id], project.baseCurrency)}</span>
+              </div>
+            ))}
+          </div>
+
+          <div className="section-label" style={{ marginTop: 16 }}>相關項目</div>
+          <div className="list-stack">
+            {relatedItems.map(({ item, amount }) => {
+              const itemType = item.itemType || "expense";
+              const positive = amount > 0;
+              return (
+                <div key={item.id} className="related-item-row">
+                  <div className="related-item-main">
+                    <span className="related-item-note">{item.note}</span>
+                    <span className={"mono related-item-amount" + (positive ? " text-pos" : " text-neg")}>
+                      {positive ? "+" : "-"}{formatMoney(Math.abs(amount), project.baseCurrency)}
+                    </span>
+                  </div>
+                  <div className="related-item-meta">
+                    <span>{itemType === "transfer" ? "轉帳" : categoryOf(item.category).label}</span>
+                    <span>{item.date} {item.time}</span>
+                  </div>
+                </div>
+              );
+            })}
+            {relatedItems.length === 0 && <div className="empty-hint">還沒有跟這個人有關的項目</div>}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   PROJECT MEMBERS TAB
+   ============================================================ */
+
+function ProjectMembers({ group, project, onToggle }) {
+  const activeMembers = group.members.filter((m) => !m.deleted);
+  return (
+    <div className="screen">
+      <div className="hint-text" style={{ marginBottom: 12 }}>
+        新加入的人不會被算進「之前」已存在的均分項目裡，只會影響之後新增的項目。
+      </div>
+      <div className="list-stack">
+        {activeMembers.map((m) => {
+          const on = project.memberIds.includes(m.id);
+          return (
+            <button key={m.id} className={"toggle-row" + (on ? " toggle-row-on" : "")} onClick={() => onToggle(m.id, !on)}>
+              <span>{m.name}</span>
+              <span className={"mini-check" + (on ? " on" : "")}>{on ? "✓" : ""}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+/* ============================================================
+   PROJECT VIEW — tab container
+   ============================================================ */
+
+function ProjectView({ group, project, expenses, membersById, myId, onSwitchIdentity, onBack, tab, setTab, expenseEditor, setExpenseEditor, actions, onRefresh }) {
+  const [editingProject, setEditingProject] = useState(false);
+  const [pname, setPname] = useState(project.name);
+  const [pdesc, setPdesc] = useState(project.description || "");
+  const [pdecimals, setPdecimals] = useState(project.settlementDecimals ?? 0);
+  const [syncing, setSyncing] = useState(false);
+
+  const handleRefresh = async () => {
+    setSyncing(true);
+    await onRefresh();
+    setTimeout(() => setSyncing(false), 400);
+  };
+
+  const startEditProject = () => {
+    setPname(project.name);
+    setPdesc(project.description || "");
+    setPdecimals(project.settlementDecimals ?? 0);
+    setEditingProject(true);
+  };
+
+  const duplicateItem = (id) => {
+    const exp = expenses.find((e) => e.id === id);
+    if (!exp) return;
+    const n = nowHHMM();
+    setExpenseEditor({ isEdit: false, initialValues: { ...exp, date: todayStr(), time: `${n.hour}:${n.minute}` } });
+  };
+
+  const markPaid = (txn) => {
+    const n = nowHHMM();
+    setExpenseEditor({
+      isEdit: false,
+      initialValues: {
+        itemType: "transfer",
+        amount: txn.amount,
+        currency: project.baseCurrency,
+        exchangeRate: 1,
+        baseAmount: txn.amount,
+        fromMemberId: txn.from,
+        toMemberId: txn.to,
+        note: "結算轉帳",
+        date: todayStr(),
+        time: `${n.hour}:${n.minute}`,
+      },
+    });
+  };
+
+  const headerBack = expenseEditor ? () => setExpenseEditor(null) : onBack;
+
+  return (
+    <div>
+      {editingProject ? (
+        <div className="card" style={{ marginBottom: 12 }}>
+          <div className="section-label">專案名稱</div>
+          <input className="input" value={pname} onChange={(e) => setPname(e.target.value)} />
+          <div className="section-label" style={{ marginTop: 12 }}>說明</div>
+          <textarea className="input textarea" value={pdesc} onChange={(e) => setPdesc(e.target.value)} placeholder="這個專案是做什麼用的" />
+          <div className="section-label" style={{ marginTop: 12 }}>結算計算位數</div>
+          <div className="mode-switch mode-switch-3">
+            <button className={pdecimals === 0 ? "on" : ""} onClick={() => setPdecimals(0)}>整數</button>
+            <button className={pdecimals === 1 ? "on" : ""} onClick={() => setPdecimals(1)}>小數1位</button>
+            <button className={pdecimals === 2 ? "on" : ""} onClick={() => setPdecimals(2)}>小數2位</button>
+          </div>
+          <div className="row-form" style={{ marginTop: 12 }}>
+            <button className="btn-ghost" onClick={() => setEditingProject(false)}>取消</button>
+            <button
+              className="btn-accent"
+              disabled={!pname.trim()}
+              onClick={() => {
+                actions.updateProject(pname.trim(), pdesc.trim(), pdecimals);
+                setEditingProject(false);
+              }}
+            >
+              儲存
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="topbar">
+          <button className="backbtn" onClick={headerBack} aria-label="返回">‹</button>
+          <div className="topbar-text">
+            <div className="topbar-title">{project.name}</div>
+            {project.description && <div className="topbar-sub">{project.description}</div>}
+            <div className="topbar-sub">
+              {group.name} · 你是 {membersById[myId]?.name || "?"} ·{" "}
+              <button className="link-btn" onClick={onSwitchIdentity}>切換身份</button>
+            </div>
+          </div>
+          {!expenseEditor && (
+            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
+              <button className="edit-icon-btn" onClick={handleRefresh} disabled={syncing}>{syncing ? "…" : "🔄"}</button>
+              <button className="edit-icon-btn" onClick={startEditProject}>編輯</button>
+            </div>
+          )}
+        </div>
+      )}
+      {expenseEditor ? (
+        <AddExpenseForm
+          project={project}
+          allMembers={group.members}
+          isEdit={expenseEditor.isEdit}
+          initialValues={expenseEditor.initialValues}
+          onSave={(exp) => {
+            actions.saveExpense({ ...exp, lastEditedBy: myId, lastEditedAt: Date.now() });
+            setExpenseEditor(null);
+          }}
+          onCancel={() => setExpenseEditor(null)}
+        />
+      ) : (
+        <>
+          <div className="tabbar">
+            {[
+              ["expenses", "項目"],
+              ["settlement", "結算"],
+              ["stats", "統計"],
+              ["members", "成員"],
+            ].map(([id, label]) => (
+              <button key={id} className={"tab" + (tab === id ? " tab-on" : "")} onClick={() => setTab(id)}>
+                {label}
+              </button>
+            ))}
+          </div>
+          {tab === "expenses" && (
+            <ExpenseList
+              project={project}
+              expenses={expenses}
+              membersById={membersById}
+              myId={myId}
+              onAdd={() => setExpenseEditor({ isEdit: false, initialValues: null })}
+              onEdit={(id) => {
+                const exp = expenses.find((e) => e.id === id);
+                if (exp) setExpenseEditor({ isEdit: true, initialValues: exp });
+              }}
+              onDuplicate={duplicateItem}
+              onDelete={actions.deleteExpense}
+            />
+          )}
+          {tab === "settlement" && (
+            <SettlementPage
+              project={project}
+              expenses={expenses}
+              membersById={membersById}
+              onModeChange={actions.setSettlementMode}
+              onMarkPaid={markPaid}
+            />
+          )}
+          {tab === "stats" && <StatsPage project={project} expenses={expenses} membersById={membersById} myId={myId} />}
+          {tab === "members" && <ProjectMembers group={group} project={project} onToggle={actions.toggleProjectMember} />}
+        </>
+      )}
+    </div>
+  );
+}
+
+/* ============================================================
+   ROOT APP
+   ============================================================ */
+
+function App() {
+  const { data, loading, err, persist, retry, refresh } = useStore();
+  const [identity, setIdentity] = useState({});
+  const [unlockedGroups, setUnlockedGroups] = useState(() => new Set());
+  const [nav, setNav] = useState({ screen: "home", groupId: null, projectId: null, memberId: null });
+  const [projectTab, setProjectTab] = useState("expenses");
+  const [expenseEditor, setExpenseEditor] = useState(null); // null | { isEdit, initialValues }
+
+  if (loading) {
+    return (
+      <div className="app-shell">
+        <style>{CSS}</style>
+        <div className="loading">載入中…</div>
+      </div>
+    );
+  }
+  if (err || !data) {
+    return (
+      <div className="app-shell">
+        <style>{CSS}</style>
+        <div className="loading">
+          <div>發生錯誤，請稍後再試</div>
+          <button className="btn-accent" style={{ marginTop: 14 }} onClick={retry}>重新載入</button>
+        </div>
+      </div>
+    );
+  }
+
+  const groups = Object.values(data.groups);
+  const currentGroup = nav.groupId ? data.groups[nav.groupId] : null;
+  const currentProject = nav.projectId ? data.projects[nav.projectId] : null;
+  const projectsOfGroup = currentGroup
+    ? Object.values(data.projects).filter((p) => p.groupId === currentGroup.id)
+    : [];
+  const membersById = currentGroup ? Object.fromEntries(currentGroup.members.map((m) => [m.id, m])) : {};
+  const expensesOfProject = currentProject
+    ? Object.values(data.expenses).filter((e) => e.projectId === currentProject.id)
+    : [];
+  const currentMember = currentGroup && nav.memberId ? membersById[nav.memberId] : null;
+
+  const myId = currentGroup ? identity[currentGroup.id] : null;
+  const needsOnboarding = currentGroup && !myId;
+
+  /* ---------- actions ---------- */
+  const createGroup = (name, description, memberNames) => {
+    const groupId = uid("g");
+    const members = memberNames.map((n) => ({ id: uid("mem"), name: n, phone: "", bankAccount: "" }));
+    persist((prev) => ({
+      ...prev,
+      groups: { ...prev.groups, [groupId]: { id: groupId, name, description, members, createdAt: Date.now() } },
+    }));
+    setNav({ screen: "group", groupId, projectId: null, memberId: null });
+  };
+
+  const updateGroup = (groupId, name, description) => {
+    persist((prev) => {
+      const g = prev.groups[groupId];
+      return { ...prev, groups: { ...prev.groups, [groupId]: { ...g, name, description } } };
+    });
+  };
+
+  const setGroupPassword = (groupId, password) => {
+    persist((prev) => {
+      const g = prev.groups[groupId];
+      return { ...prev, groups: { ...prev.groups, [groupId]: { ...g, password } } };
+    });
+    setUnlockedGroups((prev) => new Set([...prev, groupId]));
+  };
+
+  const removeGroupPassword = (groupId) => {
+    persist((prev) => {
+      const g = prev.groups[groupId];
+      return { ...prev, groups: { ...prev.groups, [groupId]: { ...g, password: null } } };
+    });
+  };
+
+  const restoreData = (parsed) => {
+    persist(() => ({
+      groups: parsed.groups || {},
+      projects: parsed.projects || {},
+      expenses: parsed.expenses || {},
+    }));
+  };
+
+  const addMemberToGroup = (groupId, name) => {
+    const memberId = uid("mem");
+    persist((prev) => {
+      const g = prev.groups[groupId];
+      return { ...prev, groups: { ...prev.groups, [groupId]: { ...g, members: [...g.members, { id: memberId, name, phone: "", bankAccount: "" }] } } };
+    });
+    return memberId;
+  };
+
+  const updateMember = (groupId, memberId, updates) => {
+    persist((prev) => {
+      const g = prev.groups[groupId];
+      const members = g.members.map((m) => (m.id === memberId ? { ...m, ...updates } : m));
+      return { ...prev, groups: { ...prev.groups, [groupId]: { ...g, members } } };
+    });
+  };
+
+  const deleteMember = (groupId, memberId) => {
+    persist((prev) => {
+      const g = prev.groups[groupId];
+      const members = g.members.map((m) => (m.id === memberId ? { ...m, deleted: true } : m));
+      const projects = { ...prev.projects };
+      Object.values(prev.projects).forEach((p) => {
+        if (p.groupId === groupId && p.memberIds.includes(memberId)) {
+          const memberIds = p.memberIds.filter((id) => id !== memberId);
+          const collectorId = p.collectorId === memberId ? memberIds[0] || null : p.collectorId;
+          projects[p.id] = { ...p, memberIds, collectorId };
+        }
+      });
+      // Expense/collection/transfer records are left completely untouched.
+      return { ...prev, groups: { ...prev.groups, [groupId]: { ...g, members } }, projects };
+    });
+  };
+
+  const handleOnboardPick = (memberId, newName) => {
+    if (memberId) {
+      setIdentity((prev) => ({ ...prev, [currentGroup.id]: memberId }));
+    } else if (newName) {
+      const newId = addMemberToGroup(currentGroup.id, newName);
+      setIdentity((prev) => ({ ...prev, [currentGroup.id]: newId }));
+    }
+  };
+
+  const switchIdentity = () => {
+    setIdentity((prev) => {
+      const next = { ...prev };
+      delete next[currentGroup.id];
+      return next;
+    });
+  };
+
+  const createProject = (name, description, memberIds, baseCurrency, settlementDecimals) => {
+    const projectId = uid("p");
+    persist((prev) => ({
+      ...prev,
+      projects: {
+        ...prev.projects,
+        [projectId]: {
+          id: projectId,
+          groupId: currentGroup.id,
+          name,
+          description,
+          memberIds,
+          baseCurrency,
+          settlementDecimals,
+          settlementMode: "min",
+          collectorId: memberIds[0] || null,
+          createdAt: Date.now(),
+        },
+      },
+    }));
+    setNav({ screen: "project", groupId: currentGroup.id, projectId, memberId: null });
+    setProjectTab("expenses");
+  };
+
+  const updateProject = (name, description, settlementDecimals) => {
+    persist((prev) => {
+      const p = prev.projects[currentProject.id];
+      return { ...prev, projects: { ...prev.projects, [currentProject.id]: { ...p, name, description, settlementDecimals } } };
+    });
+  };
+
+  const toggleProjectMember = (memberId, on) => {
+    persist((prev) => {
+      const p = prev.projects[currentProject.id];
+      const memberIds = on ? [...new Set([...p.memberIds, memberId])] : p.memberIds.filter((id) => id !== memberId);
+      return { ...prev, projects: { ...prev.projects, [currentProject.id]: { ...p, memberIds } } };
+    });
+  };
+
+  const saveExpense = (expense) => {
+    persist((prev) => ({ ...prev, expenses: { ...prev.expenses, [expense.id]: expense } }));
+  };
+
+  const deleteExpense = (expenseId) => {
+    persist((prev) => {
+      const next = { ...prev.expenses };
+      delete next[expenseId];
+      return { ...prev, expenses: next };
+    });
+  };
+
+  const setSettlementMode = (mode, collectorId) => {
+    persist((prev) => {
+      const p = prev.projects[currentProject.id];
+      return { ...prev, projects: { ...prev.projects, [currentProject.id]: { ...p, settlementMode: mode, collectorId } } };
+    });
+  };
+
+  const actions = { saveExpense, deleteExpense, setSettlementMode, toggleProjectMember, updateProject };
+
+  const openGroup = (id) => {
+    const g = data.groups[id];
+    if (g && g.password && !unlockedGroups.has(id)) {
+      setNav({ screen: "locked", groupId: id, projectId: null, memberId: null });
+    } else {
+      setNav({ screen: "group", groupId: id, projectId: null, memberId: null });
+    }
+  };
+
+  /* ---------- render ---------- */
+  let content;
+  if (nav.screen === "home") {
+    content = <Home groups={groups} onOpenGroup={openGroup} onCreateGroup={createGroup} data={data} onRestore={restoreData} onRefresh={refresh} />;
+  } else if (nav.screen === "locked" && currentGroup) {
+    content = (
+      <GroupLockScreen
+        group={currentGroup}
+        onBack={() => setNav({ screen: "home", groupId: null, projectId: null, memberId: null })}
+        onUnlock={() => {
+          setUnlockedGroups((prev) => new Set([...prev, currentGroup.id]));
+          setNav({ screen: "group", groupId: currentGroup.id, projectId: null, memberId: null });
+        }}
+      />
+    );
+  } else if (nav.screen === "group" && currentGroup) {
+    if (needsOnboarding) {
+      content = (
+        <Onboarding
+          group={currentGroup}
+          onPick={handleOnboardPick}
+          onBack={() => setNav({ screen: "home", groupId: null, projectId: null, memberId: null })}
+        />
+      );
+    } else {
+      content = (
+        <GroupPage
+          group={currentGroup}
+          projects={projectsOfGroup}
+          myId={myId}
+          onBack={() => setNav({ screen: "home", groupId: null, projectId: null, memberId: null })}
+          onOpenProject={(id) => {
+            setNav({ screen: "project", groupId: currentGroup.id, projectId: id, memberId: null });
+            setProjectTab("expenses");
+            setExpenseEditor(null);
+          }}
+          onCreateProject={createProject}
+          onAddMember={(name) => addMemberToGroup(currentGroup.id, name)}
+          onOpenMember={(id) => setNav({ screen: "member", groupId: currentGroup.id, projectId: null, memberId: id })}
+          onUpdateGroup={(name, description) => updateGroup(currentGroup.id, name, description)}
+          onSwitchIdentity={switchIdentity}
+          onSetPassword={(password) => setGroupPassword(currentGroup.id, password)}
+          onRemovePassword={() => removeGroupPassword(currentGroup.id)}
+        />
+      );
+    }
+  } else if (nav.screen === "member" && currentGroup && currentMember) {
+    content = (
+      <MemberDetailPage
+        member={currentMember}
+        groupName={currentGroup.name}
+        groupMembers={currentGroup.members}
+        onBack={() => setNav({ screen: "group", groupId: currentGroup.id, projectId: null, memberId: null })}
+        onUpdate={(updates) => updateMember(currentGroup.id, currentMember.id, updates)}
+        onDelete={() => {
+          deleteMember(currentGroup.id, currentMember.id);
+          setNav({ screen: "group", groupId: currentGroup.id, projectId: null, memberId: null });
+        }}
+      />
+    );
+  } else if (nav.screen === "project" && currentProject && currentGroup) {
+    if (needsOnboarding) {
+      content = (
+        <Onboarding
+          group={currentGroup}
+          onPick={handleOnboardPick}
+          onBack={() => setNav({ screen: "group", groupId: currentGroup.id, projectId: null, memberId: null })}
+        />
+      );
+    } else {
+      content = (
+        <ProjectView
+          group={currentGroup}
+          project={currentProject}
+          expenses={expensesOfProject}
+          membersById={membersById}
+          myId={myId}
+          onSwitchIdentity={switchIdentity}
+          onBack={() => setNav({ screen: "group", groupId: currentGroup.id, projectId: null, memberId: null })}
+          tab={projectTab}
+          setTab={setProjectTab}
+          expenseEditor={expenseEditor}
+          setExpenseEditor={setExpenseEditor}
+          actions={actions}
+          onRefresh={refresh}
+        />
+      );
+    }
+  } else {
+    content = <Home groups={groups} onOpenGroup={openGroup} onCreateGroup={createGroup} data={data} onRestore={restoreData} onRefresh={refresh} />;
+  }
+
+  return (
+    <div className="app-shell">
+      <style>{CSS}</style>
+      <div className="app-frame">{content}</div>
+    </div>
+  );
+}
+
+/* ============================================================
+   STYLES
+   ============================================================ */
+
+const CSS = `
+@import url('https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;700&family=IBM+Plex+Mono:wght@500;600&family=Noto+Sans+TC:wght@400;500;700&display=swap');
+
+:root {
+  --bg: #14181f;
+  --surface: #1b2027;
+  --surface-2: #242a33;
+  --border: #333b47;
+  --text: #f2efea;
+  --text-dim: #9aa3af;
+  --accent: #C15A45;
+  --accent-2: #E8A33D;
+  --on-accent: #FFF3EC;
+  --positive: #4CAF7D;
+  --radius: 14px;
+}
+
+* { box-sizing: border-box; }
+
+.app-shell {
+  background: var(--bg);
+  color: var(--text);
+  font-family: 'Noto Sans TC', system-ui, sans-serif;
+  min-height: 100vh;
+  display: flex;
+  justify-content: center;
+  padding: 0;
+}
+
+.app-frame {
+  width: 100%;
+  max-width: 480px;
+  min-height: 100vh;
+  background: var(--bg);
+  padding: 20px 16px 60px;
+}
+
+.mono { font-family: 'IBM Plex Mono', monospace; }
+
+.loading { padding: 40px; text-align: center; color: var(--text-dim); }
+
+.screen { display: flex; flex-direction: column; gap: 6px; }
+
+.topbar { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+.backbtn {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  width: 34px; height: 34px; border-radius: 10px; font-size: 20px; cursor: pointer;
+}
+.topbar-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 20px; }
+.topbar-sub { color: var(--text-dim); font-size: 13px; margin-top: 2px; }
+.topbar-text { flex: 1; min-width: 0; }
+
+.app-title-block { margin-bottom: 22px; }
+.app-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 30px; letter-spacing: -0.02em; }
+.app-sub { color: var(--text-dim); font-size: 13px; margin-top: 4px; }
+
+.section-label {
+  font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.08em;
+  margin: 10px 0 6px;
+}
+
+.list-stack { display: flex; flex-direction: column; gap: 10px; }
+
+.group-card, .project-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 14px 16px; text-align: left; color: var(--text); cursor: pointer;
+  display: flex; flex-direction: column; gap: 4px;
+}
+.group-card-name, .project-card-name { font-weight: 700; font-size: 16px; font-family: 'Space Grotesk', sans-serif; }
+.group-card-meta, .project-card-meta { color: var(--text-dim); font-size: 12px; }
+
+.empty-hint { color: var(--text-dim); font-size: 13px; padding: 14px; text-align: center; border: 1px dashed var(--border); border-radius: var(--radius); }
+
+.btn-outline, .btn-accent, .btn-ghost {
+  border-radius: 12px; padding: 12px 16px; font-size: 14px; font-weight: 600; cursor: pointer; border: none;
+  font-family: 'Noto Sans TC', sans-serif;
+}
+.btn-outline { background: transparent; border: 1px dashed var(--border); color: var(--text-dim); }
+.btn-accent { background: var(--accent); color: var(--on-accent); }
+.btn-accent:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn-ghost { background: var(--surface-2); color: var(--text-dim); }
+.full-width { width: 100%; }
+
+.card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; }
+.card.subtle { background: var(--surface-2); }
+
+.input {
+  width: 100%; background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  border-radius: 10px; padding: 11px 12px; font-size: 16px; font-family: inherit; margin-top: 2px; box-sizing: border-box;
+}
+.input.small { padding: 8px 10px; font-size: 16px; }
+.textarea { min-height: 64px; resize: vertical; }
+
+.row-form { display: flex; gap: 10px; margin-top: 6px; }
+.row-form .btn-ghost, .row-form .btn-accent { flex: 1; }
+.row-2 { display: flex; gap: 10px; }
+.row-2 > div { flex: 1; }
+
+.member-chip-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.member-tag {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+  padding: 7px 12px; border-radius: 999px; font-size: 13px;
+}
+.member-tag-me { border-color: var(--accent); color: var(--accent); }
+.member-tag-add { color: var(--accent); border-style: dashed; cursor: pointer; }
+.member-tag.selectable { cursor: pointer; }
+.member-tag-on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+
+.member-pick-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.member-pick {
+  background: var(--surface); border: 1px solid var(--border); color: var(--text);
+  padding: 14px 8px; border-radius: 12px; font-size: 14px; cursor: pointer;
+}
+
+.onboard-hero { padding: 10px 0 20px; }
+.onboard-eyebrow { color: var(--accent); font-size: 12px; letter-spacing: 0.1em; text-transform: uppercase; }
+.onboard-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 26px; margin-top: 4px; }
+.onboard-desc { color: var(--text-dim); font-size: 13px; margin-top: 6px; }
+
+.cat-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 4px; }
+.cat-btn {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+  padding: 10px 6px; border-radius: 10px; font-size: 13px; cursor: pointer;
+}
+.cat-btn-on { background: color-mix(in srgb, var(--cat-color) 25%, var(--surface)); border-color: var(--cat-color); color: var(--cat-color); font-weight: 700; }
+
+.mode-switch { display: flex; background: var(--surface-2); border: 1px solid var(--border); border-radius: 12px; padding: 3px; margin: 6px 0; }
+.mode-switch button { flex: 1; background: transparent; border: none; color: var(--text-dim); padding: 9px 6px; border-radius: 9px; font-size: 13px; cursor: pointer; font-family: inherit; }
+.mode-switch button.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+.mode-switch-3 button { font-size: 12px; }
+
+.hint-text { color: var(--text-dim); font-size: 12px; margin-top: 4px; }
+.hint-warn { color: var(--accent-2); }
+
+.picker-box {
+  display: flex; align-items: center; gap: 4px;
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 11px 8px; margin-top: 2px; box-sizing: border-box; height: 46px;
+}
+.picker-box select {
+  background: transparent; border: none; color: var(--text); font-family: inherit; font-size: 16px;
+  flex: 1; min-width: 0; width: 100%; text-align: center; -webkit-appearance: none; appearance: none; padding: 0;
+}
+.picker-box .colon { color: var(--text-dim); flex-shrink: 0; }
+
+.split-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
+.split-row { display: flex; align-items: center; gap: 10px; }
+.split-row-name { flex: 0 0 auto; min-width: 44px; font-size: 13px; white-space: nowrap; }
+.split-row .input { flex: 1; min-width: 0; }
+
+.mini-check {
+  width: 22px; height: 22px; border-radius: 4px; border: 1px solid var(--border); background: var(--surface-2);
+  color: var(--accent); display: flex; align-items: center; justify-content: center; font-size: 13px; cursor: pointer; flex-shrink: 0;
+}
+.mini-check.on { border-color: var(--accent); background: color-mix(in srgb, var(--accent) 20%, var(--surface-2)); }
+.mini-check-static { cursor: default; }
+
+.filter-chip-row { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.filter-chip {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+  padding: 5px 10px; border-radius: 999px; font-size: 12px; cursor: pointer;
+}
+.filter-chip.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 600; }
+
+.date-group-header {
+  font-size: 12px; color: var(--text-dim); text-transform: uppercase; letter-spacing: 0.06em;
+  padding: 14px 4px 4px;
+}
+
+.receipt-list { display: flex; flex-direction: column; gap: 0; margin-top: 14px; }
+.receipt-item {
+  padding: 14px 4px; border-bottom: 1px dashed var(--border);
+}
+.receipt-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; }
+.chip { font-size: 11px; padding: 4px 9px; border-radius: 999px; border: 1px solid; font-weight: 700; }
+.receipt-actions { display: flex; gap: 2px; }
+.del-btn { background: none; border: none; color: var(--text-dim); font-size: 12px; cursor: pointer; text-decoration: underline; padding: 8px 8px; }
+.del-btn-confirm { color: var(--accent); font-weight: 600; }
+.link-btn { background: none; border: none; color: var(--accent); font-size: inherit; cursor: pointer; text-decoration: underline; padding: 0; }
+.receipt-mid { display: flex; justify-content: space-between; align-items: baseline; }
+.receipt-note { font-size: 15px; font-weight: 500; }
+.receipt-amount { font-size: 17px; font-weight: 600; }
+.receipt-fx { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
+.receipt-shares { font-size: 12px; color: var(--text-dim); margin-top: 6px; line-height: 1.6; }
+.receipt-bottom { display: flex; justify-content: space-between; color: var(--text-dim); font-size: 12px; margin-top: 8px; }
+.receipt-edited { font-size: 10px; color: var(--text-dim); opacity: 0.6; margin-top: 6px; }
+
+.tabbar { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
+.tab { flex: 1; background: none; border: none; color: var(--text-dim); padding: 10px 4px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; font-family: inherit; }
+.tab-on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
+
+.balance-list, .txn-list, .stat-bars { display: flex; flex-direction: column; gap: 8px; }
+.balance-row { display: flex; justify-content: space-between; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 14px; }
+.text-pos { color: var(--positive); }
+.text-neg { color: var(--accent); }
+
+.txn-row { display: flex; align-items: center; gap: 8px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; font-size: 14px; }
+.txn-arrow { color: var(--accent); }
+.txn-amount { margin-left: auto; font-weight: 600; }
+
+.stat-hero { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 18px; text-align: center; }
+.stat-hero-label { color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
+.stat-hero-value { font-size: 28px; font-weight: 700; margin-top: 6px; }
+
+.stat-bar-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
+.stat-bar-label { width: 44px; color: var(--text-dim); flex-shrink: 0; }
+.stat-bar-value { width: 90px; text-align: right; flex-shrink: 0; }
+.bar-track { flex: 1; height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.bar-fill { height: 100%; border-radius: 999px; }
+
+.mini-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px; text-align: center; }
+.mini-card-label { color: var(--text-dim); font-size: 12px; }
+.mini-card-value { font-size: 17px; font-weight: 700; margin-top: 4px; }
+
+.related-item-row { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 10px 14px; }
+.related-item-main { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.related-item-note { font-size: 14px; }
+.related-item-amount { font-size: 14px; font-weight: 700; flex-shrink: 0; }
+.related-item-meta { display: flex; justify-content: space-between; color: var(--text-dim); font-size: 12px; margin-top: 4px; }
+
+.toggle-row {
+  display: flex; justify-content: space-between; align-items: center; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; cursor: pointer; color: var(--text);
+}
+.toggle-row-on { border-color: var(--accent); }
+
+.card-desc { color: var(--text-dim); font-size: 12px; line-height: 1.4; }
+
+.edit-icon-btn {
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+  padding: 7px 12px; border-radius: 10px; font-size: 12px; cursor: pointer; flex-shrink: 0; align-self: flex-start;
+}
+
+.detail-row {
+  display: flex; justify-content: space-between; align-items: center; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font-size: 14px;
+}
+.detail-label { color: var(--text-dim); }
+
+.pay-btn {
+  background: var(--surface-2); border: 1px solid var(--accent); color: var(--accent);
+  padding: 6px 12px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; flex-shrink: 0;
+}
+
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(10, 12, 16, 0.65); display: flex; align-items: center;
+  justify-content: center; padding: 24px; z-index: 50;
+}
+.modal-card {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 20px; width: 100%; max-width: 360px; display: flex; flex-direction: column; gap: 10px;
+}
+.modal-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 20px; }
+.modal-amount { font-size: 24px; font-weight: 700; color: var(--accent); margin-bottom: 4px; }
+`;
+
+
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(<App />);
+</script>
+</body>
+</html>

@@ -205,13 +205,6 @@ function reconcileBalances(rawBalances, decimals) {
     creditors.forEach((c) => (reconciled[c.id] = c.amount));
     return reconciled;
 }
-function typeLabel(itemType) {
-    if (itemType === "collection")
-        return "收入";
-    if (itemType === "transfer")
-        return "轉帳";
-    return "支出";
-}
 function nowHHMM() {
     const d = new Date();
     const h = String(d.getHours()).padStart(2, "0");
@@ -422,6 +415,47 @@ function TopBar({ title, subtitle, onBack }) {
 function Bar({ pct, color }) {
     return (React.createElement("div", { className: "bar-track" },
         React.createElement("div", { className: "bar-fill", style: { width: `${Math.max(0, Math.min(100, pct))}%`, background: color } })));
+}
+function CategoryBarList({ byCategory, itemsByCategory, currency, getAmount, colorize }) {
+    const [expandedSet, setExpandedSet] = useState(() => new Set());
+    const max = Math.max(1, ...Object.values(byCategory));
+    const total = Object.values(byCategory).reduce((s, v) => s + v, 0);
+    const toggle = (id) => {
+        setExpandedSet((prev) => {
+            const next = new Set(prev);
+            next.has(id) ? next.delete(id) : next.add(id);
+            return next;
+        });
+    };
+    return (React.createElement("div", { className: "stat-bars" }, CATEGORIES.map((c) => {
+        const items = itemsByCategory[c.id] || [];
+        const hasItems = items.length > 0;
+        const isExpanded = expandedSet.has(c.id);
+        const pct = total > 0 ? Math.round((byCategory[c.id] / total) * 100) : 0;
+        return (React.createElement("div", { key: c.id },
+            React.createElement("button", { type: "button", className: "stat-bar-row stat-bar-clickable", disabled: !hasItems, onClick: () => toggle(c.id) },
+                React.createElement(Chip, { color: c.color }, c.label),
+                React.createElement(Bar, { pct: (byCategory[c.id] / max) * 100, color: c.color }),
+                React.createElement("span", { className: "mono stat-bar-pct", style: { color: c.color } },
+                    pct,
+                    "%"),
+                React.createElement("span", { className: "mono stat-bar-value" }, formatMoney(byCategory[c.id], currency))),
+            isExpanded && (React.createElement("div", { className: "category-expand-list" }, items.map((item) => {
+                const amt = getAmount(item);
+                const sign = amt < 0 ? "-" : colorize ? "+" : "";
+                return (React.createElement("div", { key: item.id, className: "related-item-row" },
+                    React.createElement("div", { className: "related-item-main" },
+                        React.createElement("span", { className: "related-item-note" }, item.note),
+                        React.createElement("span", { className: "mono related-item-amount" + (colorize ? (amt >= 0 ? " text-pos" : " text-neg") : "") },
+                            sign,
+                            formatMoney(Math.abs(amt), currency))),
+                    React.createElement("div", { className: "related-item-meta" },
+                        React.createElement("span", null,
+                            item.date,
+                            " ",
+                            item.time))));
+            })))));
+    })));
 }
 function DatePickerBox({ value, onChange }) {
     const [y, m, d] = value.split("-").map((v) => parseInt(v, 10));
@@ -1425,10 +1459,18 @@ function StatsPage({ project, expenses, membersById, myId }) {
     const collectionExpenses = useMemo(() => expenses.filter((e) => e.itemType === "collection"), [expenses]);
     const totalSpend = spendingExpenses.reduce((s, e) => s + e.baseAmount, 0);
     const totalCollected = collectionExpenses.reduce((s, e) => s + e.baseAmount, 0);
+    const sortByDateDesc = (arr) => [...arr].sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
     const byCategory = useMemo(() => {
         const map = {};
         CATEGORIES.forEach((c) => (map[c.id] = 0));
         spendingExpenses.forEach((e) => (map[e.category] = (map[e.category] || 0) + e.baseAmount));
+        return map;
+    }, [spendingExpenses]);
+    const expenseItemsByCategory = useMemo(() => {
+        const map = {};
+        CATEGORIES.forEach((c) => (map[c.id] = []));
+        spendingExpenses.forEach((e) => map[e.category].push(e));
+        Object.keys(map).forEach((k) => (map[k] = sortByDateDesc(map[k])));
         return map;
     }, [spendingExpenses]);
     const collectedByCategory = useMemo(() => {
@@ -1437,13 +1479,22 @@ function StatsPage({ project, expenses, membersById, myId }) {
         collectionExpenses.forEach((e) => (map[e.category] = (map[e.category] || 0) + e.baseAmount));
         return map;
     }, [collectionExpenses]);
+    const collectionItemsByCategory = useMemo(() => {
+        const map = {};
+        CATEGORIES.forEach((c) => (map[c.id] = []));
+        collectionExpenses.forEach((e) => map[e.category].push(e));
+        Object.keys(map).forEach((k) => (map[k] = sortByDateDesc(map[k])));
+        return map;
+    }, [collectionExpenses]);
     const settlementDecimals = project.settlementDecimals ?? 0;
     const rawBalances = useMemo(() => computeBalances(project.memberIds, expenses), [project.memberIds, expenses]);
     const balances = useMemo(() => reconcileBalances(rawBalances, settlementDecimals), [rawBalances, settlementDecimals]);
     const personal = useMemo(() => {
         const owedByCategory = {};
-        CATEGORIES.forEach((c) => (owedByCategory[c.id] = 0));
+        const contributedByCategory = {};
+        CATEGORIES.forEach((c) => { owedByCategory[c.id] = 0; contributedByCategory[c.id] = 0; });
         let owedTotal = 0;
+        let contributedTotal = 0;
         spendingExpenses.forEach((e) => {
             const { shares } = computeItemAllocation(e);
             if (shares[viewMemberId] !== undefined) {
@@ -1451,23 +1502,37 @@ function StatsPage({ project, expenses, membersById, myId }) {
                 owedTotal += shares[viewMemberId];
             }
         });
-        let contributedTotal = 0;
+        collectionExpenses.forEach((e) => {
+            const { shares } = computeItemAllocation(e);
+            if (shares[viewMemberId] !== undefined) {
+                contributedByCategory[e.category] = (contributedByCategory[e.category] || 0) + shares[viewMemberId];
+                contributedTotal += shares[viewMemberId];
+            }
+        });
+        return { owedTotal, owedByCategory, contributedTotal, contributedByCategory, net: balances[viewMemberId] || 0 };
+    }, [viewMemberId, spendingExpenses, collectionExpenses, balances]);
+    const personalExpenseItemsByCategory = useMemo(() => {
+        const map = {};
+        CATEGORIES.forEach((c) => (map[c.id] = []));
+        spendingExpenses.forEach((e) => {
+            const { shares } = computeItemAllocation(e);
+            if (shares[viewMemberId] !== undefined)
+                map[e.category].push(e);
+        });
+        Object.keys(map).forEach((k) => (map[k] = sortByDateDesc(map[k])));
+        return map;
+    }, [spendingExpenses, viewMemberId]);
+    const personalCollectionItemsByCategory = useMemo(() => {
+        const map = {};
+        CATEGORIES.forEach((c) => (map[c.id] = []));
         collectionExpenses.forEach((e) => {
             const { shares } = computeItemAllocation(e);
             if (shares[viewMemberId] !== undefined)
-                contributedTotal += shares[viewMemberId];
+                map[e.category].push(e);
         });
-        return { owedTotal, owedByCategory, contributedTotal, net: balances[viewMemberId] || 0 };
-    }, [viewMemberId, spendingExpenses, collectionExpenses, balances]);
-    const relatedItems = useMemo(() => {
-        return expenses
-            .map((e) => ({ item: e, amount: personalItemAmount(e, viewMemberId) }))
-            .filter((r) => r.amount !== null)
-            .sort((a, b) => `${b.item.date}${b.item.time}`.localeCompare(`${a.item.date}${a.item.time}`));
-    }, [expenses, viewMemberId]);
-    const maxCat = Math.max(1, ...Object.values(byCategory));
-    const maxCollectedCat = Math.max(1, ...Object.values(collectedByCategory));
-    const maxOwedCat = Math.max(1, ...Object.values(personal.owedByCategory));
+        Object.keys(map).forEach((k) => (map[k] = sortByDateDesc(map[k])));
+        return map;
+    }, [collectionExpenses, viewMemberId]);
     return (React.createElement("div", { className: "screen" },
         React.createElement("div", { className: "mode-switch" },
             React.createElement("button", { className: tab === "group" ? "on" : "", onClick: () => setTab("group") }, "\u5718\u9AD4\u7D71\u8A08"),
@@ -1478,18 +1543,12 @@ function StatsPage({ project, expenses, membersById, myId }) {
                 React.createElement("div", { className: "stat-hero-value mono" }, formatMoney(totalSpend, project.baseCurrency)),
                 React.createElement("div", { className: "hint-text" }, "\u4E0D\u542B\u6536\u5165\u8207\u8F49\u5E33\u9805\u76EE")),
             React.createElement("div", { className: "section-label" }, "\u5206\u985E\u4F54\u6BD4"),
-            React.createElement("div", { className: "stat-bars" }, CATEGORIES.map((c) => (React.createElement("div", { key: c.id, className: "stat-bar-row" },
-                React.createElement("span", { className: "stat-bar-label" }, c.label),
-                React.createElement(Bar, { pct: (byCategory[c.id] / maxCat) * 100, color: c.color }),
-                React.createElement("span", { className: "mono stat-bar-value" }, formatMoney(byCategory[c.id], project.baseCurrency)))))),
+            React.createElement(CategoryBarList, { byCategory: byCategory, itemsByCategory: expenseItemsByCategory, currency: project.baseCurrency, getAmount: (item) => -item.baseAmount, colorize: true }),
             React.createElement("div", { className: "stat-hero", style: { marginTop: 20 } },
                 React.createElement("div", { className: "stat-hero-label" }, "\u6536\u5165\u7E3D\u984D"),
                 React.createElement("div", { className: "stat-hero-value mono" }, formatMoney(totalCollected, project.baseCurrency))),
             React.createElement("div", { className: "section-label" }, "\u6536\u5165\u5206\u985E\u4F54\u6BD4"),
-            React.createElement("div", { className: "stat-bars" }, CATEGORIES.map((c) => (React.createElement("div", { key: c.id, className: "stat-bar-row" },
-                React.createElement("span", { className: "stat-bar-label" }, c.label),
-                React.createElement(Bar, { pct: (collectedByCategory[c.id] / maxCollectedCat) * 100, color: c.color }),
-                React.createElement("span", { className: "mono stat-bar-value" }, formatMoney(collectedByCategory[c.id], project.baseCurrency)))))))) : (React.createElement(React.Fragment, null,
+            React.createElement(CategoryBarList, { byCategory: collectedByCategory, itemsByCategory: collectionItemsByCategory, currency: project.baseCurrency, getAmount: (item) => item.baseAmount, colorize: true }))) : (React.createElement(React.Fragment, null,
             React.createElement("div", { className: "section-label" }, "\u67E5\u770B\u5C0D\u8C61"),
             React.createElement("select", { className: "input", value: viewMemberId, onChange: (e) => setViewMemberId(e.target.value) }, project.memberIds.map((id) => (React.createElement("option", { key: id, value: id }, membersById[id]?.name)))),
             React.createElement("div", { className: "stat-hero", style: { marginTop: 12 } },
@@ -1506,29 +1565,9 @@ function StatsPage({ project, expenses, membersById, myId }) {
                     React.createElement("div", { className: "mini-card-label" }, "\u6536\u6B3E"),
                     React.createElement("div", { className: "mini-card-value mono" }, formatMoney(personal.contributedTotal, project.baseCurrency)))),
             React.createElement("div", { className: "section-label", style: { marginTop: 16 } }, "\u500B\u4EBA\u5206\u985E\u652F\u51FA"),
-            React.createElement("div", { className: "stat-bars" }, CATEGORIES.map((c) => (React.createElement("div", { key: c.id, className: "stat-bar-row" },
-                React.createElement("span", { className: "stat-bar-label" }, c.label),
-                React.createElement(Bar, { pct: (personal.owedByCategory[c.id] / maxOwedCat) * 100, color: c.color }),
-                React.createElement("span", { className: "mono stat-bar-value" }, formatMoney(personal.owedByCategory[c.id], project.baseCurrency)))))),
-            React.createElement("div", { className: "section-label", style: { marginTop: 16 } }, "\u76F8\u95DC\u9805\u76EE"),
-            React.createElement("div", { className: "list-stack" },
-                relatedItems.map(({ item, amount }) => {
-                    const itemType = item.itemType || "expense";
-                    const positive = amount > 0;
-                    return (React.createElement("div", { key: item.id, className: "related-item-row" },
-                        React.createElement("div", { className: "related-item-main" },
-                            React.createElement("span", { className: "related-item-note" }, item.note),
-                            React.createElement("span", { className: "mono related-item-amount" + (positive ? " text-pos" : " text-neg") },
-                                positive ? "+" : "-",
-                                formatMoney(Math.abs(amount), project.baseCurrency))),
-                        React.createElement("div", { className: "related-item-meta" },
-                            React.createElement("span", null, itemType === "transfer" ? "轉帳" : categoryOf(item.category).label),
-                            React.createElement("span", null,
-                                item.date,
-                                " ",
-                                item.time))));
-                }),
-                relatedItems.length === 0 && React.createElement("div", { className: "empty-hint" }, "\u9084\u6C92\u6709\u8DDF\u9019\u500B\u4EBA\u6709\u95DC\u7684\u9805\u76EE"))))));
+            React.createElement(CategoryBarList, { byCategory: personal.owedByCategory, itemsByCategory: personalExpenseItemsByCategory, currency: project.baseCurrency, getAmount: (item) => -computeItemAllocation(item).shares[viewMemberId], colorize: true }),
+            React.createElement("div", { className: "section-label", style: { marginTop: 16 } }, "\u500B\u4EBA\u5206\u985E\u6536\u5165"),
+            React.createElement(CategoryBarList, { byCategory: personal.contributedByCategory, itemsByCategory: personalCollectionItemsByCategory, currency: project.baseCurrency, getAmount: (item) => computeItemAllocation(item).shares[viewMemberId], colorize: true })))));
 }
 /* ============================================================
    PROJECT MEMBERS TAB
@@ -2146,7 +2185,6 @@ const CSS = `
 .receipt-fx { font-size: 12px; color: var(--text-dim); margin-top: 2px; }
 .receipt-shares { font-size: 12px; color: var(--text-dim); margin-top: 6px; line-height: 1.6; }
 .receipt-bottom { display: flex; justify-content: space-between; color: var(--text-dim); font-size: 12px; margin-top: 8px; }
-.receipt-edited { font-size: 10px; color: var(--text-dim); opacity: 0.6; margin-top: 6px; }
 
 .tabbar { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
 .tab { flex: 1; background: none; border: none; color: var(--text-dim); padding: 10px 4px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; font-family: inherit; }
@@ -2165,11 +2203,17 @@ const CSS = `
 .stat-hero-label { color: var(--text-dim); font-size: 12px; text-transform: uppercase; letter-spacing: 0.08em; }
 .stat-hero-value { font-size: 28px; font-weight: 700; margin-top: 6px; }
 
-.stat-bar-row { display: flex; align-items: center; gap: 8px; font-size: 12px; }
-.stat-bar-label { width: 44px; color: var(--text-dim); flex-shrink: 0; }
-.stat-bar-value { width: 90px; text-align: right; flex-shrink: 0; }
+.stat-bar-row {
+  display: flex; align-items: center; gap: 8px; font-size: 12px; width: 100%;
+  background: none; border: none; margin: 0; padding: 4px 0; color: var(--text); font-family: inherit; text-align: left;
+}
+.stat-bar-clickable { cursor: pointer; }
+.stat-bar-clickable:disabled { cursor: default; }
+.stat-bar-value { width: 76px; text-align: right; flex-shrink: 0; }
+.stat-bar-pct { width: 34px; text-align: right; flex-shrink: 0; font-size: 11px; font-weight: 700; }
 .bar-track { flex: 1; height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
 .bar-fill { height: 100%; border-radius: 999px; }
+.category-expand-list { display: flex; flex-direction: column; gap: 6px; padding: 6px 0 0 4px; margin-bottom: 4px; }
 
 .mini-card { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px; text-align: center; }
 .mini-card-label { color: var(--text-dim); font-size: 12px; }

@@ -1274,8 +1274,23 @@ function exportCSV(project, expenses, membersById) {
 function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdit, onDelete, onDuplicate }) {
     const [confirmDeleteId, setConfirmDeleteId] = useState(null);
     const [search, setSearch] = useState("");
-    const [typeFilter, setTypeFilter] = useState("all"); // all | expense | collection | transfer
+    const [typeFilterSet, setTypeFilterSet] = useState(() => new Set()); // empty = show all types
+    const [categoryFilterSet, setCategoryFilterSet] = useState(() => new Set()); // empty = show all categories
     const [onlyMine, setOnlyMine] = useState(false);
+    const toggleTypeFilter = (key) => {
+        setTypeFilterSet((prev) => {
+            const next = new Set(prev);
+            next.has(key) ? next.delete(key) : next.add(key);
+            return next;
+        });
+    };
+    const toggleCategoryFilter = (key) => {
+        setCategoryFilterSet((prev) => {
+            const next = new Set(prev);
+            next.has(key) ? next.delete(key) : next.add(key);
+            return next;
+        });
+    };
     const involvesMe = (e) => {
         const itemType = e.itemType || "expense";
         if (itemType === "transfer")
@@ -1284,8 +1299,14 @@ function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdit, onDe
     };
     const filtered = expenses.filter((e) => {
         const itemType = e.itemType || "expense";
-        if (typeFilter !== "all" && itemType !== typeFilter)
+        if (typeFilterSet.size > 0 && !typeFilterSet.has(itemType))
             return false;
+        if (categoryFilterSet.size > 0) {
+            if (itemType === "transfer")
+                return false;
+            if (!categoryFilterSet.has(e.category))
+                return false;
+        }
         if (onlyMine && !involvesMe(e))
             return false;
         if (search.trim() && !e.note.toLowerCase().includes(search.trim().toLowerCase()))
@@ -1302,7 +1323,6 @@ function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdit, onDe
         React.createElement("button", { className: "del-btn", onClick: () => onEdit(id) }, "\u7DE8\u8F2F"),
         React.createElement("button", { className: "del-btn", onClick: () => setConfirmDeleteId(id) }, "\u522A\u9664")));
     const typeFilters = [
-        ["all", "全部"],
         ["expense", "支出"],
         ["collection", "收入"],
         ["transfer", "轉帳"],
@@ -1314,8 +1334,12 @@ function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdit, onDe
             React.createElement("button", { className: "btn-ghost", onClick: () => exportCSV(project, expenses, membersById) }, "\u532F\u51FA CSV")),
         React.createElement("input", { className: "input", style: { marginTop: 10 }, placeholder: "\u641C\u5C0B\u9805\u76EE\u8AAA\u660E", value: search, onChange: (e) => setSearch(e.target.value) }),
         React.createElement("div", { className: "filter-chip-row" },
-            typeFilters.map(([key, label]) => (React.createElement("button", { key: key, className: "filter-chip" + (typeFilter === key ? " on" : ""), onClick: () => setTypeFilter(key) }, label))),
+            typeFilters.map(([key, label]) => (React.createElement("button", { key: key, className: "filter-chip" + (typeFilterSet.has(key) ? " on" : ""), onClick: () => toggleTypeFilter(key) }, label))),
             React.createElement("button", { className: "filter-chip" + (onlyMine ? " on" : ""), onClick: () => setOnlyMine((v) => !v) }, "\u53EA\u770B\u6211\u7684")),
+        React.createElement("div", { className: "filter-chip-row", style: { marginTop: 6 } }, CATEGORIES.map((c) => {
+            const active = categoryFilterSet.has(c.id);
+            return (React.createElement("button", { key: c.id, className: "filter-chip", style: active ? { background: `${c.color}22`, borderColor: `${c.color}55`, color: c.color, fontWeight: 700 } : undefined, onClick: () => toggleCategoryFilter(c.id) }, c.label));
+        })),
         React.createElement("div", { className: "hint-text", style: { marginTop: 6 } },
             "\u5171 ",
             sorted.length,

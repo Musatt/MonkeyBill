@@ -59,3 +59,13 @@ export function findMemberByName(members, name, excludeId) {
   const trimmed = name.trim();
   return members.find((m) => m.id !== excludeId && m.name === trimmed) || null;
 }
+
+// 給「最後編輯」用的時間戳記，例如 2026-08-22 19:55
+export function formatTimestamp(ts) {
+  if (!ts) return "";
+  const d = new Date(ts);
+  if (Number.isNaN(d.getTime())) return "";
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mm = String(d.getMinutes()).padStart(2, "0");
+  return `${todayStr(d)} ${hh}:${mm}`;
+}

@@ -13,27 +13,41 @@
   --positive: #4CAF7D;
   --radius: 14px;
   --tap: 44px; /* 手指最小可靠點擊尺寸 */
+  /* iPhone 瀏海／狀態列／home indicator 的安全區。抽成變數方便測試時模擬。 */
+  --sa-top: env(safe-area-inset-top, 0px);
+  --sa-right: env(safe-area-inset-right, 0px);
+  --sa-bottom: env(safe-area-inset-bottom, 0px);
+  --sa-left: env(safe-area-inset-left, 0px);
   --caret: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%239aa3af' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>");
 }
 
 * { box-sizing: border-box; }
-html, body { margin: 0; padding: 0; }
+/* 背景要鋪到 html/body，否則 iPhone 瀏海與狀態列那一塊會露出白底 */
+html, body { margin: 0; padding: 0; background: var(--bg); }
 
 .app-shell {
   background: var(--bg);
   color: var(--text);
   font-family: 'Noto Sans TC', system-ui, sans-serif;
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   justify-content: center;
 }
 
+/* viewport-fit=cover 會讓內容延伸到瀏海／狀態列／home indicator 底下，
+   所以四邊都要把安全區距離加回來，標題才不會被切掉。 */
 .app-frame {
   width: 100%;
   max-width: 480px;
   min-height: 100vh;
+  min-height: 100dvh;
   background: var(--bg);
-  padding: 20px 16px 60px;
+  padding:
+    calc(20px + var(--sa-top))
+    calc(16px + var(--sa-right))
+    calc(60px + var(--sa-bottom))
+    calc(16px + var(--sa-left));
 }
 
 .mono { font-family: 'IBM Plex Mono', monospace; }
@@ -221,6 +235,14 @@ select.input {
 .balance-row { display: flex; justify-content: space-between; gap: 10px; background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; font-size: 14px; }
 .balance-row .mono { white-space: nowrap; }
 .balance-row-deleted { opacity: 0.75; }
+/* 標出自己，一長串名字裡才找得到 */
+.balance-row-me, .txn-row-me { border-color: var(--accent-2); background: color-mix(in srgb, var(--accent-2) 9%, var(--surface)); }
+.balance-row-me > span:first-child, .name-me { font-weight: 700; color: var(--accent-2); }
+.row-me-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 6px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; line-height: 1.5;
+  background: var(--accent-2); color: #1b2027;
+}
 .text-pos { color: var(--positive); }
 .text-neg { color: var(--accent); }
 
@@ -298,7 +320,7 @@ select.input {
 
 /* 存檔狀態列：黏在畫面上緣，寫入失敗時不會被使用者錯過 */
 .save-banner {
-  position: sticky; top: 0; z-index: 40; display: flex; align-items: center; gap: 10px;
+  position: sticky; top: var(--sa-top); z-index: 40; display: flex; align-items: center; gap: 10px;
   border-radius: 10px; padding: 10px 12px; font-size: 12px; margin-bottom: 10px;
 }
 .save-banner-saving { background: var(--surface-2); color: var(--text-dim); border: 1px solid var(--border); }
@@ -311,7 +333,7 @@ select.input {
 
 /* 表單底部的固定操作列，長表單不用每次滑到最下面 */
 .form-actions {
-  position: sticky; bottom: 0; background: var(--bg); padding: 10px 0 4px;
+  position: sticky; bottom: var(--sa-bottom); background: var(--bg); padding: 10px 0 4px;
   border-top: 1px solid var(--border); margin-top: 14px; z-index: 30;
 }
 .form-actions .row-form { margin-top: 0; }

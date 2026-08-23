@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import { formatMoney, formatSigned, projectDecimals } from "../lib/format.js";
 import { computeBalances, reconcileBalances, simplifyDebts, oneCollectorSettlement } from "../lib/money.js";
 
-export function SettlementPage({ project, expenses, membersById, onModeChange, onMarkPaid }) {
+export function SettlementPage({ project, expenses, membersById, myId, onModeChange, onMarkPaid }) {
   const decimals = projectDecimals(project);
   const balances = useMemo(() => computeBalances(project.memberIds, expenses), [project.memberIds, expenses]);
   const reconciled = useMemo(() => reconcileBalances(balances, decimals), [balances, decimals]);
@@ -52,10 +52,15 @@ export function SettlementPage({ project, expenses, membersById, onModeChange, o
           const positive = v > 0.005;
           const negative = v < -0.005;
           const inProject = project.memberIds.includes(id);
+          const isMe = id === myId;
           return (
-            <div key={id} className={"balance-row" + (inProject ? "" : " balance-row-deleted")}>
+            <div
+              key={id}
+              className={"balance-row" + (inProject ? "" : " balance-row-deleted") + (isMe ? " balance-row-me" : "")}
+            >
               <span>
                 {membersById[id]?.name || "?"}
+                {isMe && <span className="row-me-tag">你</span>}
                 {!inProject && <span className="hint-text" style={{ marginLeft: 6 }}>（已不在專案）</span>}
               </span>
               <span className={"mono" + (positive ? " text-pos" : negative ? " text-neg" : "")}>
@@ -69,15 +74,24 @@ export function SettlementPage({ project, expenses, membersById, onModeChange, o
 
       <div className="section-label" style={{ marginTop: 16 }}>建議轉帳</div>
       <div className="txn-list">
-        {txns.map((t, i) => (
-          <div key={`${t.from}-${t.to}-${i}`} className="txn-row">
-            <span>{membersById[t.from]?.name || "?"}</span>
-            <span className="txn-arrow">→</span>
-            <span>{membersById[t.to]?.name || "?"}</span>
-            <span className="mono txn-amount">{formatMoney(t.amount, project.baseCurrency, decimals)}</span>
-            <button className="pay-btn" onClick={() => setPayModalTxn(t)}>付款</button>
-          </div>
-        ))}
+        {txns.map((t, i) => {
+          const involvesMe = t.from === myId || t.to === myId;
+          return (
+            <div key={`${t.from}-${t.to}-${i}`} className={"txn-row" + (involvesMe ? " txn-row-me" : "")}>
+              <span className={t.from === myId ? "name-me" : undefined}>
+                {membersById[t.from]?.name || "?"}
+                {t.from === myId && <span className="row-me-tag">你</span>}
+              </span>
+              <span className="txn-arrow">→</span>
+              <span className={t.to === myId ? "name-me" : undefined}>
+                {membersById[t.to]?.name || "?"}
+                {t.to === myId && <span className="row-me-tag">你</span>}
+              </span>
+              <span className="mono txn-amount">{formatMoney(t.amount, project.baseCurrency, decimals)}</span>
+              <button className="pay-btn" onClick={() => setPayModalTxn(t)}>付款</button>
+            </div>
+          );
+        })}
         {txns.length === 0 && <div className="empty-hint">帳目已結清 🎉</div>}
       </div>
       <div className="hint-text" style={{ marginTop: 10 }}>

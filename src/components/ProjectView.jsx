@@ -262,6 +262,7 @@ export function ProjectView({
               project={project}
               expenses={expenses}
               membersById={membersById}
+              myId={myId}
               onModeChange={actions.setSettlementMode}
               onMarkPaid={markPaid}
             />

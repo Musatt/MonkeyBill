@@ -99,8 +99,6 @@ export function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdi
     .filter((e) => (e.itemType || "expense") === "expense")
     .reduce((s, e) => s + e.baseAmount, 0);
 
-  const editedText = (e) => (e.lastEditedBy ? `最後編輯：${membersById[e.lastEditedBy]?.name || "?"}` : "");
-
   const actionRow = (id) =>
     confirmDeleteId === id ? (
       <div className="receipt-actions">
@@ -208,7 +206,6 @@ export function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdi
                     {membersById[e.fromMemberId]?.name || "?"} → {membersById[e.toMemberId]?.name || "?"}
                   </div>
                   <div className="receipt-bottom">
-                    <span>{editedText(e)}</span>
                     <span>{e.time}</span>
                   </div>
                 </div>
@@ -258,7 +255,6 @@ export function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdi
                   </div>
                 )}
                 <div className="receipt-bottom">
-                  <span>{editedText(e)}</span>
                   <span>{e.time}</span>
                   <span>
                     {e.splitType === "equal" ? "均分" : e.splitType === "ratio" ? "比例" : "自訂"} · {(e.splitMemberIds || []).length} 人

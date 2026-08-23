@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { CATEGORIES } from "../constants.js";
-import { todayStr, nowHHMM, formatMoney, projectDecimals, uid } from "../lib/format.js";
+import { todayStr, nowHHMM, formatMoney, formatTimestamp, projectDecimals, uid } from "../lib/format.js";
 import { DatePickerBox, CurrencySelect } from "./primitives.jsx";
 
 export function AddExpenseForm({ project, allMembers, initialValues, isEdit, onSave, onCancel }) {
@@ -193,9 +193,21 @@ export function AddExpenseForm({ project, allMembers, initialValues, isEdit, onS
   const minutes = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
   const invalidReason = validationMessage();
 
+  // 「最後編輯」只在這裡顯示。列表上每筆都掛一個名字會讓畫面上的人名太多。
+  const lastEditedName = isEdit && initialValues?.lastEditedBy
+    ? allMembers.find((m) => m.id === initialValues.lastEditedBy)?.name || "?"
+    : null;
+  const lastEditedAt = isEdit ? formatTimestamp(initialValues?.lastEditedAt) : "";
+
   return (
     <div className="screen">
       <div className="onboard-eyebrow" style={{ marginBottom: 4 }}>{isEdit ? "編輯項目" : "新增項目"}</div>
+      {lastEditedName && (
+        <div className="hint-text">
+          最後編輯：{lastEditedName}
+          {lastEditedAt && ` · ${lastEditedAt}`}
+        </div>
+      )}
 
       <div className="section-label">項目類型</div>
       <div className="mode-switch mode-switch-3">

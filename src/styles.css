@@ -66,6 +66,8 @@ html, body { margin: 0; padding: 0; background: var(--bg); }
 .topbar-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 20px; }
 .topbar-sub { color: var(--text-dim); font-size: 13px; margin-top: 2px; }
 .topbar-text { flex: 1; min-width: 0; }
+/* 操作鍵自成一列：擠在標題旁邊會把長專案名壓成三行 */
+.topbar-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 8px; margin: -10px 0 14px; }
 
 .app-title-block { margin-bottom: 22px; display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
 .app-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 30px; letter-spacing: -0.02em; }
@@ -316,6 +318,13 @@ select.input {
   max-height: 90vh; overflow-y: auto;
 }
 .modal-title { font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: 20px; }
+
+.qr-wrap { display: flex; justify-content: center; padding: 12px; background: #fff; border-radius: 12px; margin-top: 4px; }
+.share-url {
+  background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px;
+  padding: 10px 12px; font-size: 12px; color: var(--text-dim);
+  overflow-wrap: anywhere; user-select: all; -webkit-user-select: all;
+}
 .modal-amount { font-size: 24px; font-weight: 700; color: var(--accent); margin-bottom: 4px; }
 
 /* 存檔狀態列：黏在畫面上緣，寫入失敗時不會被使用者錯過 */

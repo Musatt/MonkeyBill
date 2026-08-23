@@ -250,7 +250,7 @@ export function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdi
                 {myAmount !== null && (
                   <div className={"receipt-shares mono" + (myAmount < 0 ? " text-neg" : " text-pos")}>
                     {membersById[myId]?.name || "你"}
-                    {isCollection ? " 收款 " : " 分攤 "}
+                    {isCollection ? " 分到 " : " 分攤 "}
                     {formatMoney(Math.abs(myAmount), project.baseCurrency, decimals)}
                   </div>
                 )}

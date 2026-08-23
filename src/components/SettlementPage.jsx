@@ -105,7 +105,7 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
             <div className="modal-title">{payee?.name || "?"}</div>
             <div className="modal-amount mono">{formatMoney(payModalTxn.amount, project.baseCurrency, decimals)}</div>
             <div className="detail-row">
-              <span className="detail-label">連絡電話</span>
+              <span className="detail-label">聯絡電話</span>
               <span className="mono">{payee?.phone || "尚未填寫"}</span>
             </div>
             <div className="detail-row">

@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import "./styles.css";
 import { useStore } from "./lib/useStore.js";
-import { useRouter } from "./lib/useRouter.js";
+import { useRouter, buildHash } from "./lib/useRouter.js";
 import { uid, todayStr } from "./lib/format.js";
 import { loadIdentity, saveIdentity, loadUnlocked, saveUnlocked } from "./lib/localPrefs.js";
 import { SaveBanner } from "./components/primitives.jsx";
@@ -9,8 +9,11 @@ import { Home } from "./components/Home.jsx";
 import { GroupLockScreen } from "./components/GroupLockScreen.jsx";
 import { Onboarding } from "./components/Onboarding.jsx";
 import { GroupPage } from "./components/GroupPage.jsx";
+import { GroupEditScreen } from "./components/GroupEditScreen.jsx";
 import { MemberDetailPage } from "./components/MemberDetailPage.jsx";
 import { ProjectView } from "./components/ProjectView.jsx";
+import { ProjectEditScreen } from "./components/ProjectEditScreen.jsx";
+import { ShareModal } from "./components/ShareModal.jsx";
 
 const newMember = (name) => ({ id: uid("mem"), name, phone: "", bankCode: "", bankAccount: "", otherPayment: "" });
 
@@ -19,11 +22,18 @@ export default function App() {
   const { route, navigate, replace, back } = useRouter();
   const [identity, setIdentity] = useState(loadIdentity);
   const [unlockedGroups, setUnlockedGroups] = useState(loadUnlocked);
+  const [sharing, setSharing] = useState(null); // null | { title, subtitle, url, note }
 
   useEffect(() => saveIdentity(identity), [identity]);
   useEffect(() => saveUnlocked(unlockedGroups), [unlockedGroups]);
 
   const goHome = useCallback(() => navigate({ screen: "home" }), [navigate]);
+
+  // 分享連結：目前這個畫面的完整網址，朋友點開就會直接落在同一頁
+  const shareUrlFor = useCallback((target) => {
+    const { origin, pathname } = window.location;
+    return `${origin}${pathname}${buildHash(target)}`;
+  }, []);
 
   /* ---------- 目前畫面對應的資料 ---------- */
   const groups = useMemo(() => (data ? Object.values(data.groups) : []), [data]);
@@ -50,7 +60,7 @@ export default function App() {
 
   const currentMember = currentGroup && route.memberId ? membersById[route.memberId] : null;
   const myId = currentGroup ? identity[currentGroup.id] : null;
-  // 身份指向的成員如果已被刪除或不存在，就當作還沒選身份
+  // 身分指向的成員如果已被刪除或不存在，就當作還沒選身分
   const myMember = myId && currentGroup ? currentGroup.members.find((m) => m.id === myId && !m.deleted) : null;
   const needsOnboarding = !!currentGroup && !myMember;
   const isLocked = !!currentGroup && !!currentGroup.password && !unlockedGroups.has(currentGroup.id);
@@ -176,7 +186,7 @@ export default function App() {
       // 支出／收入／轉帳紀錄完全不動，歷史保留
       return { ...prev, groups: { ...prev.groups, [groupId]: { ...g, members } }, projects };
     });
-    // 刪掉的如果剛好是自己選的身份，清掉才不會卡在「我是一個不存在的人」
+    // 刪掉的如果剛好是自己選的身分，清掉才不會卡在「我是一個不存在的人」
     setIdentity((prev) => {
       if (prev[groupId] !== memberId) return prev;
       const next = { ...prev };
@@ -322,6 +332,20 @@ export default function App() {
         }}
       />
     );
+  } else if (route.screen === "project" && currentGroup && currentProject && route.settings) {
+    content = (
+      <ProjectEditScreen
+        group={currentGroup}
+        project={currentProject}
+        expenseCount={expensesOfProject.length}
+        onBack={back}
+        onSave={(name, description, settlementDecimals, date) => {
+          updateCurrentProject({ name, description, settlementDecimals, date });
+          back();
+        }}
+        onDeleteProject={() => deleteProject(currentProject.id)}
+      />
+    );
   } else if (route.screen === "project" && currentGroup && currentProject) {
     content = (
       <ProjectView
@@ -337,9 +361,33 @@ export default function App() {
         editor={route.editor}
         onOpenEditor={(mode, expenseId) => navigate({ ...route, editor: { mode, expenseId } })}
         onCloseEditor={() => replace({ ...route, editor: null })}
+        onOpenSettings={() => navigate({ ...route, editor: null, settings: true })}
+        onShare={() =>
+          setSharing({
+            title: currentProject.name,
+            subtitle: `${currentGroup.name} 的專案`,
+            url: shareUrlFor({ screen: "project", groupId: currentGroup.id, projectId: currentProject.id, tab: "expenses" }),
+            note: currentGroup.password ? "這個群組有設密碼，對方開啟後需要輸入密碼才看得到。" : "",
+          })
+        }
         actions={actions}
         onRefresh={refresh}
-        onDeleteProject={() => deleteProject(currentProject.id)}
+      />
+    );
+  } else if (route.screen === "group" && currentGroup && route.settings) {
+    content = (
+      <GroupEditScreen
+        group={currentGroup}
+        projectCount={projectsOfGroup.length}
+        expenseCount={expensesOfGroup.length}
+        onBack={back}
+        onSave={(name, description) => {
+          updateGroupFields(currentGroup.id, { name, description });
+          back();
+        }}
+        onSetPassword={(password) => setGroupPassword(currentGroup.id, password)}
+        onRemovePassword={() => updateGroupFields(currentGroup.id, { password: null })}
+        onDeleteGroup={() => deleteGroup(currentGroup.id)}
       />
     );
   } else if (route.screen === "group" && currentGroup) {
@@ -355,11 +403,16 @@ export default function App() {
         onAddMember={(name) => addMemberToGroup(currentGroup.id, name)}
         onReviveMember={(memberId) => reviveMember(currentGroup.id, memberId)}
         onOpenMember={(memberId) => navigate({ screen: "member", groupId: currentGroup.id, memberId })}
-        onUpdateGroup={(name, description) => updateGroupFields(currentGroup.id, { name, description })}
+        onOpenSettings={() => navigate({ screen: "group", groupId: currentGroup.id, settings: true })}
+        onShare={() =>
+          setSharing({
+            title: currentGroup.name,
+            subtitle: "分帳本群組",
+            url: shareUrlFor({ screen: "group", groupId: currentGroup.id }),
+            note: currentGroup.password ? "這個群組有設密碼，對方開啟後需要輸入密碼才看得到。" : "",
+          })
+        }
         onSwitchIdentity={switchIdentity}
-        onSetPassword={(password) => setGroupPassword(currentGroup.id, password)}
-        onRemovePassword={() => updateGroupFields(currentGroup.id, { password: null })}
-        onDeleteGroup={() => deleteGroup(currentGroup.id)}
       />
     );
   } else {
@@ -380,6 +433,7 @@ export default function App() {
       <div className="app-frame">
         <SaveBanner saveState={saveState} onRetry={retrySave} />
         {content}
+        {sharing && <ShareModal {...sharing} onClose={() => setSharing(null)} />}
       </div>
     </div>
   );

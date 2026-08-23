@@ -57,9 +57,9 @@ export function Home({ groups, onOpenGroup, onCreateGroup, data, onRestore, onRe
         <div className="card" style={{ marginTop: 16 }}>
           <div className="section-label">群組名稱</div>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：勿考試喝酒" autoFocus />
-          <div className="section-label" style={{ marginTop: 12 }}>說明(選填)</div>
+          <div className="section-label" style={{ marginTop: 12 }}>說明（選填）</div>
           <textarea className="input textarea" value={desc} onChange={(e) => setDesc(e.target.value)} placeholder="這個群組是做什麼用的" />
-          <div className="section-label" style={{ marginTop: 12 }}>成員(用逗號分開)</div>
+          <div className="section-label" style={{ marginTop: 12 }}>成員（用逗號分開）</div>
           <textarea
             className="input textarea"
             value={memberText}

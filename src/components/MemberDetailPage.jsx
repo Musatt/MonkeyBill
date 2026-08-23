@@ -61,7 +61,7 @@ export function MemberDetailPage({ member, groupName, groupMembers, projects, ex
               {duplicate.deleted ? `「${name.trim()}」是已刪除成員的名字，改成別的名字避免歷史紀錄混淆。` : "已經有相同名字的成員了"}
             </div>
           )}
-          <div className="section-label" style={{ marginTop: 12 }}>連絡電話</div>
+          <div className="section-label" style={{ marginTop: 12 }}>聯絡電話</div>
           <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="09xx-xxx-xxx" inputMode="tel" />
           <div className="row-2">
             <div>
@@ -99,7 +99,7 @@ export function MemberDetailPage({ member, groupName, groupMembers, projects, ex
         <>
           <div className="list-stack">
             <div className="detail-row">
-              <span className="detail-label">連絡電話</span>
+              <span className="detail-label">聯絡電話</span>
               <span className="mono">{member.phone || "尚未填寫"}</span>
             </div>
             <div className="detail-row">
@@ -117,7 +117,7 @@ export function MemberDetailPage({ member, groupName, groupMembers, projects, ex
           </div>
           <button className="btn-outline full-width" style={{ marginTop: 16 }} onClick={startEdit}>編輯資料</button>
 
-          <div className="section-label" style={{ marginTop: 20 }}>所有專案合計淨額</div>
+          <div className="section-label" style={{ marginTop: 20 }}>所有專案餘額合計</div>
           {projectBalances.length === 0 ? (
             <div className="empty-hint">目前沒有未結清的專案</div>
           ) : (
@@ -132,7 +132,7 @@ export function MemberDetailPage({ member, groupName, groupMembers, projects, ex
                   </div>
                 ))}
               </div>
-              <div className="hint-text" style={{ marginBottom: 8 }}>正數是別人該還他，負數是他該還別人。</div>
+              <div className="hint-text" style={{ marginBottom: 8 }}>正數＝別人該還他，負數＝他該還別人。</div>
               <div className="section-label">未結清專案明細</div>
               <div className="list-stack" style={{ marginBottom: 16 }}>
                 {projectBalances.map(({ project, balance, decimals }) => (
@@ -156,10 +156,10 @@ export function MemberDetailPage({ member, groupName, groupMembers, projects, ex
               </div>
               {projectBalances.length > 0 && (
                 <div className="hint-text hint-warn" style={{ marginTop: 8 }}>
-                  注意：他目前還有 {projectBalances.length} 個專案沒有結清。
+                  注意：他目前還有 {projectBalances.length} 個專案未結清。
                 </div>
               )}
-              {isMe && <div className="hint-text hint-warn" style={{ marginTop: 8 }}>這是你目前選擇的身份，刪除後需要重新選一次你是誰。</div>}
+              {isMe && <div className="hint-text hint-warn" style={{ marginTop: 8 }}>這是你目前選擇的身分，刪除後需要重新選一次你是誰。</div>}
               <div className="row-form" style={{ marginTop: 12 }}>
                 <button className="btn-ghost" onClick={() => setConfirmingDelete(false)}>取消</button>
                 <button className="btn-accent" onClick={onDelete}>確定刪除成員</button>

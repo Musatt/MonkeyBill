@@ -55,14 +55,14 @@ export function Onboarding({ group, onPick, onBack }) {
       {canRevive && (
         <div className="card subtle" style={{ marginTop: 8 }}>
           <div className="hint-text">
-            「{trimmed}」之前被刪除過。復原之後，他過去所有的紀錄都會重新接回同一個人。
+            「{trimmed}」之前被刪除過。復原之後他過去的紀錄會重新接回同一個人。
           </div>
           <button
             className="btn-accent full-width"
             style={{ marginTop: 10 }}
             onClick={() => onPick(match.id, null, { revive: true })}
           >
-            復原「{trimmed}」並用這個身份
+            復原「{trimmed}」並用這個身分
           </button>
         </div>
       )}

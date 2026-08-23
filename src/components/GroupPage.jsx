@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-import { MASTER_PASSWORD } from "../constants.js";
 import { todayStr, findMemberByName } from "../lib/format.js";
 import { isProjectSettled } from "../lib/money.js";
 import { DatePickerBox, CurrencySelect } from "./primitives.jsx";
@@ -15,11 +14,9 @@ export function GroupPage({
   onAddMember,
   onReviveMember,
   onOpenMember,
-  onUpdateGroup,
+  onOpenSettings,
+  onShare,
   onSwitchIdentity,
-  onSetPassword,
-  onRemovePassword,
-  onDeleteGroup,
 }) {
   const activeMembers = group.members.filter((m) => !m.deleted);
   const [showNew, setShowNew] = useState(false);
@@ -31,25 +28,6 @@ export function GroupPage({
   const [settlementDecimals, setSettlementDecimals] = useState(0);
   const [showAddMember, setShowAddMember] = useState(false);
   const [newMemberName, setNewMemberName] = useState("");
-  const [editingGroup, setEditingGroup] = useState(false);
-  const [gname, setGname] = useState(group.name);
-  const [gdesc, setGdesc] = useState(group.description || "");
-  const [pwMode, setPwMode] = useState("view"); // 'view' | 'set' | 'change' | 'remove'
-  const [pw1, setPw1] = useState("");
-  const [pw2, setPw2] = useState("");
-  const [pwCheck, setPwCheck] = useState("");
-  const [pwCheckError, setPwCheckError] = useState(false);
-  const [confirmingGroupDelete, setConfirmingGroupDelete] = useState(false);
-  const [groupDeletePw, setGroupDeletePw] = useState("");
-  const [groupDeletePwError, setGroupDeletePwError] = useState(false);
-
-  const resetPwState = () => {
-    setPwMode("view");
-    setPw1("");
-    setPw2("");
-    setPwCheck("");
-    setPwCheckError(false);
-  };
 
   const toggle = (id) => {
     setSelected((prev) => {
@@ -75,175 +53,25 @@ export function GroupPage({
 
   return (
     <div className="screen">
-      {editingGroup ? (
-        <div className="card" style={{ marginBottom: 12 }}>
-          <div className="section-label">群組名稱</div>
-          <input className="input" value={gname} onChange={(e) => setGname(e.target.value)} />
-          <div className="section-label" style={{ marginTop: 12 }}>說明</div>
-          <textarea className="input textarea" value={gdesc} onChange={(e) => setGdesc(e.target.value)} placeholder="這個群組是做什麼用的" />
-
-          <div className="section-label" style={{ marginTop: 12 }}>密碼保護</div>
-          {pwMode === "view" && (
-            <>
-              <div className="detail-row">
-                <span className="detail-label">{group.password ? "已設定密碼" : "尚未設定密碼"}</span>
-                <div style={{ display: "flex", gap: 14 }}>
-                  <button className="link-btn" onClick={() => setPwMode(group.password ? "change" : "set")}>
-                    {group.password ? "更改密碼" : "設定密碼"}
-                  </button>
-                  {group.password && <button className="link-btn" onClick={() => setPwMode("remove")}>解除</button>}
-                </div>
-              </div>
-              <div className="hint-text">
-                這個鎖只是避免手滑點進來，密碼是明文存在雲端的，擋不住真的想看的人。
-              </div>
-            </>
-          )}
-          {(pwMode === "set" || pwMode === "change") && (
-            <div className="card subtle">
-              <div className="section-label">新密碼</div>
-              <input className="input mono" type="password" inputMode="numeric" value={pw1} onChange={(e) => setPw1(e.target.value)} />
-              <div className="section-label" style={{ marginTop: 8 }}>再次輸入新密碼</div>
-              <input className="input mono" type="password" inputMode="numeric" value={pw2} onChange={(e) => setPw2(e.target.value)} />
-              {pw1 && pw2 && pw1 !== pw2 && <div className="hint-text hint-warn">兩次輸入不一致</div>}
-              <div className="row-form" style={{ marginTop: 8 }}>
-                <button className="btn-ghost" onClick={resetPwState}>取消</button>
-                <button
-                  className="btn-accent"
-                  disabled={!pw1 || pw1 !== pw2}
-                  onClick={() => {
-                    onSetPassword(pw1);
-                    resetPwState();
-                  }}
-                >
-                  確定設定
-                </button>
-              </div>
-            </div>
-          )}
-          {pwMode === "remove" && (
-            <div className="card subtle">
-              <div className="section-label">請輸入目前密碼以解除保護</div>
-              <input
-                className="input mono"
-                type="password"
-                inputMode="numeric"
-                value={pwCheck}
-                onChange={(e) => {
-                  setPwCheck(e.target.value);
-                  setPwCheckError(false);
-                }}
-              />
-              {pwCheckError && <div className="hint-text hint-warn">密碼不正確</div>}
-              <div className="row-form" style={{ marginTop: 8 }}>
-                <button className="btn-ghost" onClick={resetPwState}>取消</button>
-                <button
-                  className="btn-accent"
-                  onClick={() => {
-                    if (pwCheck === group.password || pwCheck === MASTER_PASSWORD) {
-                      onRemovePassword();
-                      resetPwState();
-                    } else {
-                      setPwCheckError(true);
-                    }
-                  }}
-                >
-                  確定解除
-                </button>
-              </div>
-            </div>
-          )}
-
-          <div className="row-form" style={{ marginTop: 12 }}>
-            <button
-              className="btn-ghost"
-              onClick={() => {
-                setEditingGroup(false);
-                setGname(group.name);
-                setGdesc(group.description || "");
-                resetPwState();
-                setConfirmingGroupDelete(false);
-              }}
-            >
-              取消
-            </button>
-            <button
-              className="btn-accent"
-              disabled={!gname.trim()}
-              onClick={() => {
-                onUpdateGroup(gname.trim(), gdesc.trim());
-                setEditingGroup(false);
-              }}
-            >
-              儲存
-            </button>
+      <div className="topbar">
+        <button className="backbtn" onClick={onBack} aria-label="返回">‹</button>
+        <div className="topbar-text">
+          <div className="topbar-title">
+            {group.name}
+            {group.password && " 🔒"}
           </div>
-
-          <div className="section-label" style={{ marginTop: 20 }}>刪除群組</div>
-          {!confirmingGroupDelete ? (
-            <button className="btn-outline btn-danger full-width" onClick={() => setConfirmingGroupDelete(true)}>
-              刪除群組
-            </button>
-          ) : (
-            <div className="card subtle">
-              <div className="hint-text">
-                刪除「{group.name}」會一併刪除底下 {projects.length} 個專案與 {expenses.length} 筆項目，且無法復原。請輸入萬能密碼確認。
-              </div>
-              <input
-                className="input mono"
-                type="password"
-                inputMode="numeric"
-                value={groupDeletePw}
-                onChange={(e) => {
-                  setGroupDeletePw(e.target.value);
-                  setGroupDeletePwError(false);
-                }}
-                placeholder="萬能密碼"
-                style={{ marginTop: 8 }}
-              />
-              {groupDeletePwError && <div className="hint-text hint-warn">密碼不正確</div>}
-              <div className="row-form" style={{ marginTop: 8 }}>
-                <button
-                  className="btn-ghost"
-                  onClick={() => {
-                    setConfirmingGroupDelete(false);
-                    setGroupDeletePw("");
-                    setGroupDeletePwError(false);
-                  }}
-                >
-                  取消
-                </button>
-                <button
-                  className="btn-accent"
-                  onClick={() => {
-                    if (groupDeletePw === MASTER_PASSWORD) onDeleteGroup();
-                    else setGroupDeletePwError(true);
-                  }}
-                >
-                  確定刪除群組
-                </button>
-              </div>
+          {group.description && <div className="topbar-sub">{group.description}</div>}
+          {me && (
+            <div className="topbar-sub">
+              你是 {me.name} · <button className="link-btn" onClick={onSwitchIdentity}>切換身分</button>
             </div>
           )}
         </div>
-      ) : (
-        <div className="topbar">
-          <button className="backbtn" onClick={onBack} aria-label="返回">‹</button>
-          <div className="topbar-text">
-            <div className="topbar-title">
-              {group.name}
-              {group.password && " 🔒"}
-            </div>
-            {group.description && <div className="topbar-sub">{group.description}</div>}
-            {me && (
-              <div className="topbar-sub">
-                你是 {me.name} · <button className="link-btn" onClick={onSwitchIdentity}>切換身份</button>
-              </div>
-            )}
-          </div>
-          <button className="edit-icon-btn" onClick={() => setEditingGroup(true)}>編輯</button>
-        </div>
-      )}
+      </div>
+      <div className="topbar-actions">
+        <button className="edit-icon-btn" onClick={onShare}>🔗 分享</button>
+        <button className="edit-icon-btn" onClick={onOpenSettings}>編輯</button>
+      </div>
 
       <div className="section-label">成員 ({activeMembers.length})</div>
       <div className="member-chip-row">
@@ -341,7 +169,7 @@ export function GroupPage({
         <div className="card" style={{ marginTop: 16 }}>
           <div className="section-label">專案名稱</div>
           <input className="input" value={pname} onChange={(e) => setPname(e.target.value)} placeholder="例如：822軒銘家" autoFocus />
-          <div className="section-label" style={{ marginTop: 12 }}>說明(選填)</div>
+          <div className="section-label" style={{ marginTop: 12 }}>說明（選填）</div>
           <textarea className="input textarea" value={pdesc} onChange={(e) => setPdesc(e.target.value)} placeholder="這個專案是做什麼用的" />
           <div className="section-label" style={{ marginTop: 12 }}>專案日期</div>
           <DatePickerBox value={pdate} onChange={setPdate} />

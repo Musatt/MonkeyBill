@@ -56,7 +56,7 @@ export function AddExpenseForm({ project, allMembers, initialValues, isEdit, onS
 
   const payerLabel = itemType === "collection" ? "收款人" : "付款人";
   const payerModeLabels = itemType === "collection" ? ["單一收款人", "多人共同收款"] : ["單一付款人", "多人共同支出"];
-  const splitLabel = itemType === "collection" ? "收款方式(誰收多少)" : "分帳方式";
+  const splitLabel = itemType === "collection" ? "收款方式（誰收多少）" : "分帳方式";
   const splitMemberLabel = itemType === "collection" ? "收款對象" : "分攤成員";
 
   const needsConversion = currency !== project.baseCurrency;
@@ -351,7 +351,7 @@ export function AddExpenseForm({ project, allMembers, initialValues, isEdit, onS
           <DatePickerBox value={date} onChange={setDate} />
         </div>
         <div style={{ flex: 1 }}>
-          <div className="section-label">時間 (24小時制)</div>
+          <div className="section-label">時間（24小時制）</div>
           <div className="picker-box">
             <select value={hour} onChange={(e) => setHour(e.target.value)} aria-label="時">
               {hours.map((h) => (

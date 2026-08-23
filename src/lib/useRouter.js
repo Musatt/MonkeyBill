@@ -19,12 +19,21 @@ export const PROJECT_TABS = ["expenses", "settlement", "stats", "members"];
 export function parseHash(hash) {
   const raw = (hash || "").replace(/^#/, "");
   const parts = raw.split("/").filter(Boolean).map(decodeURIComponent);
-  const home = { screen: "home", groupId: null, projectId: null, memberId: null, tab: "expenses", editor: null };
+  const home = {
+    screen: "home",
+    groupId: null,
+    projectId: null,
+    memberId: null,
+    tab: "expenses",
+    editor: null,
+    settings: false,
+  };
   if (parts.length === 0 || parts[0] !== "g" || !parts[1]) return home;
 
   const groupId = parts[1];
   if (parts.length === 2) return { ...home, screen: "group", groupId };
 
+  if (parts[2] === "settings") return { ...home, screen: "group", groupId, settings: true };
   if (parts[2] === "m" && parts[3]) {
     return { ...home, screen: "member", groupId, memberId: parts[3] };
   }
@@ -32,6 +41,7 @@ export function parseHash(hash) {
     const projectId = parts[3];
     const base = { ...home, screen: "project", groupId, projectId };
     if (parts.length === 4) return base;
+    if (parts[4] === "settings") return { ...base, settings: true };
     if (parts[4] === "t" && PROJECT_TABS.includes(parts[5])) return { ...base, tab: parts[5] };
     if (parts[4] === "new") return { ...base, editor: { mode: "new" } };
     if (parts[4] === "edit" && parts[5]) return { ...base, editor: { mode: "edit", expenseId: parts[5] } };
@@ -44,10 +54,13 @@ export function parseHash(hash) {
 export function buildHash(route) {
   const enc = encodeURIComponent;
   if (!route || route.screen === "home" || !route.groupId) return "#/";
-  if (route.screen === "group") return `#/g/${enc(route.groupId)}`;
+  if (route.screen === "group") {
+    return route.settings ? `#/g/${enc(route.groupId)}/settings` : `#/g/${enc(route.groupId)}`;
+  }
   if (route.screen === "member") return `#/g/${enc(route.groupId)}/m/${enc(route.memberId)}`;
   if (route.screen === "project") {
     const base = `#/g/${enc(route.groupId)}/p/${enc(route.projectId)}`;
+    if (route.settings) return `${base}/settings`;
     if (route.editor?.mode === "new") return `${base}/new`;
     if (route.editor?.mode === "edit") return `${base}/edit/${enc(route.editor.expenseId)}`;
     if (route.editor?.mode === "copy") return `${base}/copy/${enc(route.editor.expenseId)}`;

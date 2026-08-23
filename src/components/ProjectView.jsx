@@ -1,7 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { MASTER_PASSWORD } from "../constants.js";
 import { todayStr, nowHHMM } from "../lib/format.js";
-import { DatePickerBox } from "./primitives.jsx";
 import { AddExpenseForm } from "./AddExpenseForm.jsx";
 import { ExpenseList } from "./ExpenseList.jsx";
 import { SettlementPage } from "./SettlementPage.jsx";
@@ -28,19 +26,12 @@ export function ProjectView({
   editor,
   onOpenEditor,
   onCloseEditor,
+  onOpenSettings,
+  onShare,
   actions,
   onRefresh,
-  onDeleteProject,
 }) {
-  const [editingProject, setEditingProject] = useState(false);
-  const [pname, setPname] = useState(project.name);
-  const [pdesc, setPdesc] = useState(project.description || "");
-  const [pdecimals, setPdecimals] = useState(project.settlementDecimals ?? 0);
-  const [pdate, setPdate] = useState(project.date || todayStr());
   const [syncing, setSyncing] = useState(false);
-  const [deleteStage, setDeleteStage] = useState(null); // null | 'password' | 'confirm'
-  const [deletePw, setDeletePw] = useState("");
-  const [deletePwError, setDeletePwError] = useState(false);
   // 「已付款」帶進表單的預填內容，無法用網址表達，所以放在元件狀態裡
   const [prefill, setPrefill] = useState(null);
 
@@ -53,12 +44,6 @@ export function ProjectView({
     if (!editor) setPrefill(null);
   }, [editor]);
 
-  const resetDeleteStage = () => {
-    setDeleteStage(null);
-    setDeletePw("");
-    setDeletePwError(false);
-  };
-
   const handleRefresh = async () => {
     setSyncing(true);
     try {
@@ -66,15 +51,6 @@ export function ProjectView({
     } finally {
       setSyncing(false);
     }
-  };
-
-  const startEditProject = () => {
-    setPname(project.name);
-    setPdesc(project.description || "");
-    setPdecimals(project.settlementDecimals ?? 0);
-    setPdate(project.date || todayStr());
-    resetDeleteStage();
-    setEditingProject(true);
   };
 
   const markPaid = (txn) => {
@@ -115,105 +91,24 @@ export function ProjectView({
 
   return (
     <div>
-      {editingProject ? (
-        <div className="card" style={{ marginBottom: 12 }}>
-          <div className="section-label">專案名稱</div>
-          <input className="input" value={pname} onChange={(e) => setPname(e.target.value)} />
-          <div className="section-label" style={{ marginTop: 12 }}>說明</div>
-          <textarea className="input textarea" value={pdesc} onChange={(e) => setPdesc(e.target.value)} placeholder="這個專案是做什麼用的" />
-          <div className="section-label" style={{ marginTop: 12 }}>專案日期</div>
-          <DatePickerBox value={pdate} onChange={setPdate} />
-          <div className="section-label" style={{ marginTop: 12 }}>金額顯示與結算位數</div>
-          <div className="mode-switch mode-switch-3">
-            <button className={pdecimals === 0 ? "on" : ""} onClick={() => setPdecimals(0)}>整數</button>
-            <button className={pdecimals === 1 ? "on" : ""} onClick={() => setPdecimals(1)}>小數1位</button>
-            <button className={pdecimals === 2 ? "on" : ""} onClick={() => setPdecimals(2)}>小數2位</button>
+      <div className="topbar">
+        <button className="backbtn" onClick={editor ? onCloseEditor : onBack} aria-label="返回">‹</button>
+        <div className="topbar-text">
+          <div className="topbar-title">{project.name}</div>
+          {project.description && <div className="topbar-sub">{project.description}</div>}
+          <div className="topbar-sub">
+            {group.name} · 你是 {membersById[myId]?.name || "?"} ·{" "}
+            <button className="link-btn" onClick={onSwitchIdentity}>切換身分</button>
           </div>
-          <div className="hint-text">這個專案裡所有 {project.baseCurrency} 金額都會用這個位數顯示與結算。</div>
-          <div className="row-form" style={{ marginTop: 12 }}>
-            <button className="btn-ghost" onClick={() => { setEditingProject(false); resetDeleteStage(); }}>取消</button>
-            <button
-              className="btn-accent"
-              disabled={!pname.trim()}
-              onClick={() => {
-                actions.updateProject(pname.trim(), pdesc.trim(), pdecimals, pdate);
-                setEditingProject(false);
-              }}
-            >
-              儲存
-            </button>
-          </div>
-
-          <div className="section-label" style={{ marginTop: 20 }}>刪除專案</div>
-          {deleteStage === null && (
-            <button
-              className="btn-outline btn-danger full-width"
-              onClick={() => setDeleteStage(group.password ? "password" : "confirm")}
-            >
-              刪除專案
-            </button>
-          )}
-          {deleteStage === "password" && (
-            <div className="card subtle">
-              <div className="section-label">請輸入群組密碼以繼續刪除</div>
-              <input
-                className="input mono"
-                type="password"
-                inputMode="numeric"
-                value={deletePw}
-                onChange={(e) => { setDeletePw(e.target.value); setDeletePwError(false); }}
-              />
-              {deletePwError && <div className="hint-text hint-warn">密碼不正確</div>}
-              <div className="row-form" style={{ marginTop: 8 }}>
-                <button className="btn-ghost" onClick={resetDeleteStage}>取消</button>
-                <button
-                  className="btn-accent"
-                  onClick={() => {
-                    if (deletePw === group.password || deletePw === MASTER_PASSWORD) {
-                      setDeleteStage("confirm");
-                      setDeletePw("");
-                      setDeletePwError(false);
-                    } else {
-                      setDeletePwError(true);
-                    }
-                  }}
-                >
-                  下一步
-                </button>
-              </div>
-            </div>
-          )}
-          {deleteStage === "confirm" && (
-            <div className="card subtle">
-              <div className="hint-text">
-                確定要刪除「{project.name}」嗎？裡面 {expenses.length} 筆項目都會一併刪除，且無法復原。
-              </div>
-              <div className="row-form" style={{ marginTop: 8 }}>
-                <button className="btn-ghost" onClick={resetDeleteStage}>取消</button>
-                <button className="btn-accent" onClick={onDeleteProject}>確定刪除專案</button>
-              </div>
-            </div>
-          )}
         </div>
-      ) : (
-        <div className="topbar">
-          <button className="backbtn" onClick={editor ? onCloseEditor : onBack} aria-label="返回">‹</button>
-          <div className="topbar-text">
-            <div className="topbar-title">{project.name}</div>
-            {project.description && <div className="topbar-sub">{project.description}</div>}
-            <div className="topbar-sub">
-              {group.name} · 你是 {membersById[myId]?.name || "?"} ·{" "}
-              <button className="link-btn" onClick={onSwitchIdentity}>切換身份</button>
-            </div>
-          </div>
-          {!editor && (
-            <div style={{ display: "flex", gap: 6, flexShrink: 0 }}>
-              <button className="edit-icon-btn" onClick={handleRefresh} disabled={syncing} aria-label="同步">
-                {syncing ? "…" : "🔄"}
-              </button>
-              <button className="edit-icon-btn" onClick={startEditProject}>編輯</button>
-            </div>
-          )}
+      </div>
+      {!editor && (
+        <div className="topbar-actions">
+          <button className="edit-icon-btn" onClick={onShare}>🔗 分享</button>
+          <button className="edit-icon-btn" onClick={handleRefresh} disabled={syncing}>
+            {syncing ? "同步中…" : "🔄 同步"}
+          </button>
+          <button className="edit-icon-btn" onClick={onOpenSettings}>編輯</button>
         </div>
       )}
 

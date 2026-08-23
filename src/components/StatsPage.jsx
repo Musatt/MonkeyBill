@@ -80,7 +80,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
       {tab === "group" ? (
         <>
           <div className="stat-hero">
-            <div className="stat-hero-label">專案總花費</div>
+            <div className="stat-hero-label">專案總支出</div>
             <div className="stat-hero-value mono">{formatMoney(totalSpend, project.baseCurrency, decimals)}</div>
             <div className="hint-text">不含收入與轉帳項目</div>
           </div>
@@ -123,7 +123,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
           </select>
 
           <div className="stat-hero" style={{ marginTop: 12 }}>
-            <div className="stat-hero-label">目前淨額</div>
+            <div className="stat-hero-label">目前餘額</div>
             <div className={"stat-hero-value mono" + (personal.net > 0.005 ? " text-pos" : personal.net < -0.005 ? " text-neg" : "")}>
               {formatSigned(personal.net, project.baseCurrency, decimals)}
             </div>
@@ -134,7 +134,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
 
           <div className="row-2" style={{ marginTop: 10 }}>
             <div className="mini-card">
-              <div className="mini-card-label">分攤到的花費</div>
+              <div className="mini-card-label">分攤到的支出</div>
               <div className="mini-card-value mono">{formatMoney(personal.spend.total, project.baseCurrency, decimals)}</div>
             </div>
             <div className="mini-card">

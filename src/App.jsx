@@ -276,14 +276,13 @@ export default function App() {
           return { ...prev, projects: { ...prev.projects, [currentProject.id]: { ...p, memberIds } } };
         }),
       // memberIds 的順序就是專案的成員順序，新增項目時選人也照這個順序
-      moveProjectMember: (memberId, delta) =>
+      setProjectMemberOrder: (orderedIds) =>
         persist((prev) => {
           const p = prev.projects[currentProject.id];
-          const memberIds = [...p.memberIds];
-          const from = memberIds.indexOf(memberId);
-          const to = from + delta;
-          if (from < 0 || to < 0 || to >= memberIds.length) return prev; // 不動就不會產生寫入
-          [memberIds[from], memberIds[to]] = [memberIds[to], memberIds[from]];
+          // 保險起見，把不在拖曳清單裡的 id（理論上不該有）接在後面，不要弄丟
+          const rest = p.memberIds.filter((id) => !orderedIds.includes(id));
+          const memberIds = [...orderedIds, ...rest];
+          if (memberIds.join() === p.memberIds.join()) return prev; // 沒變就不寫入
           return { ...prev, projects: { ...prev.projects, [currentProject.id]: { ...p, memberIds } } };
         }),
       updateProject: (name, description, settlementDecimals, date) =>

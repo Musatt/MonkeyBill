@@ -168,7 +168,7 @@ export function ProjectView({
               group={group}
               project={project}
               onToggle={actions.toggleProjectMember}
-              onMove={actions.moveProjectMember}
+              onReorder={actions.setProjectMemberOrder}
             />
           )}
         </>

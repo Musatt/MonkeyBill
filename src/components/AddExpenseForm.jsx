@@ -4,7 +4,7 @@ import { todayStr, nowHHMM, formatMoney, formatTimestamp, projectDecimals, uid }
 import { DatePickerBox, CurrencySelect } from "./primitives.jsx";
 
 export function AddExpenseForm({ project, allMembers, initialValues, isEdit, onSave, onCancel }) {
-  const projectMembers = allMembers.filter((m) => project.memberIds.includes(m.id));
+  const projectMembers = project.memberIds.map((id) => allMembers.find((m) => m.id === id)).filter(Boolean);
   const decimals = projectDecimals(project);
 
   const [itemType, setItemType] = useState(initialValues?.itemType || "expense");

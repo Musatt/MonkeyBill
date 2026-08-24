@@ -15,8 +15,36 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
     return simplifyDebts(reconciled, decimals);
   }, [reconciled, project.settlementMode, project.collectorId, decimals]);
 
-  // 已被移出專案、但歷史紀錄裡還有餘額的人也要列出來
-  const rowIds = [...new Set([...project.memberIds, ...Object.keys(reconciled)])];
+  // 已被移出專案、但歷史紀錄裡還有餘額的人也要列出來。
+  // 排序：該收錢的（多→少）→ 該付錢的（多→少）→ 已結清的擺最後。
+  const rowIds = useMemo(() => {
+    const ids = [...new Set([...project.memberIds, ...Object.keys(reconciled)])];
+    const bucket = (v) => (v > 0.005 ? 0 : v < -0.005 ? 1 : 2);
+    return ids.sort((a, b) => {
+      const va = reconciled[a] || 0;
+      const vb = reconciled[b] || 0;
+      const ba = bucket(va);
+      const bb = bucket(vb);
+      if (ba !== bb) return ba - bb;
+      if (ba === 0) return vb - va; // 收款：金額大的在前
+      if (ba === 1) return va - vb; // 付款：欠得多的在前
+      return 0;
+    });
+  }, [project.memberIds, reconciled]);
+
+  // 建議轉帳：先照收款人分組（收得多的那組在前），組內再依金額大→小
+  const sortedTxns = useMemo(() => {
+    const totalPerPayee = {};
+    txns.forEach((t) => (totalPerPayee[t.to] = (totalPerPayee[t.to] || 0) + t.amount));
+    return [...txns].sort((a, b) => {
+      if (a.to !== b.to) {
+        const diff = totalPerPayee[b.to] - totalPerPayee[a.to];
+        if (Math.abs(diff) > 1e-9) return diff;
+        return String(a.to).localeCompare(String(b.to));
+      }
+      return b.amount - a.amount;
+    });
+  }, [txns]);
   const payee = payModalTxn ? membersById[payModalTxn.to] : null;
 
   return (
@@ -74,7 +102,7 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
 
       <div className="section-label" style={{ marginTop: 16 }}>建議轉帳</div>
       <div className="txn-list">
-        {txns.map((t, i) => {
+        {sortedTxns.map((t, i) => {
           const involvesMe = t.from === myId || t.to === myId;
           return (
             <div key={`${t.from}-${t.to}-${i}`} className={"txn-row" + (involvesMe ? " txn-row-me" : "")}>

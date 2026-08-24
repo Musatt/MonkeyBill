@@ -287,6 +287,21 @@ select.input {
 }
 .toggle-row-on { border-color: var(--accent); }
 
+/* 成員排序列：比原本的 toggle-row 緊湊，一頁看得到更多人 */
+.member-order-list { display: flex; flex-direction: column; gap: 5px; }
+.member-order-row {
+  display: flex; align-items: center; gap: 8px; background: var(--surface);
+  border: 1px solid var(--border); border-radius: 9px; padding: 2px 6px 2px 9px; min-height: 38px;
+}
+.member-order-row-off { opacity: 0.7; }
+.member-order-name { flex: 1; min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
+.member-order-row .mini-check { width: 24px; height: 24px; }
+.order-btn {
+  width: 32px; height: 32px; flex-shrink: 0; border-radius: 8px; cursor: pointer; font-family: inherit;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text); font-size: 14px; line-height: 1;
+}
+.order-btn:disabled { opacity: 0.3; cursor: default; }
+
 .card-desc { color: var(--text-dim); font-size: 12px; line-height: 1.4; }
 
 .edit-icon-btn {

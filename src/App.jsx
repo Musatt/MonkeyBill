@@ -19,7 +19,7 @@ const newMember = (name) => ({ id: uid("mem"), name, phone: "", bankCode: "", ba
 
 export default function App() {
   const { data, loading, err, persist, retry, refresh, saveState, retrySave } = useStore();
-  const { route, navigate, replace, back } = useRouter();
+  const { route, navigate, replace, up } = useRouter();
   const [identity, setIdentity] = useState(loadIdentity);
   const [unlockedGroups, setUnlockedGroups] = useState(loadUnlocked);
   const [sharing, setSharing] = useState(null); // null | { title, subtitle, url, note }
@@ -28,6 +28,8 @@ export default function App() {
   useEffect(() => saveUnlocked(unlockedGroups), [unlockedGroups]);
 
   const goHome = useCallback(() => navigate({ screen: "home" }), [navigate]);
+  // 畫面上的 ‹ ＝回上一階（層級），跟手機的返回鍵（上一頁／歷史）刻意分開
+  const goUp = useCallback(() => up(route), [up, route]);
 
   // 分享連結：目前這個畫面的完整網址，朋友點開就會直接落在同一頁
   const shareUrlFor = useCallback((target) => {
@@ -273,6 +275,17 @@ export default function App() {
           const memberIds = on ? [...new Set([...p.memberIds, memberId])] : p.memberIds.filter((id) => id !== memberId);
           return { ...prev, projects: { ...prev.projects, [currentProject.id]: { ...p, memberIds } } };
         }),
+      // memberIds 的順序就是專案的成員順序，新增項目時選人也照這個順序
+      moveProjectMember: (memberId, delta) =>
+        persist((prev) => {
+          const p = prev.projects[currentProject.id];
+          const memberIds = [...p.memberIds];
+          const from = memberIds.indexOf(memberId);
+          const to = from + delta;
+          if (from < 0 || to < 0 || to >= memberIds.length) return prev; // 不動就不會產生寫入
+          [memberIds[from], memberIds[to]] = [memberIds[to], memberIds[from]];
+          return { ...prev, projects: { ...prev.projects, [currentProject.id]: { ...p, memberIds } } };
+        }),
       updateProject: (name, description, settlementDecimals, date) =>
         updateCurrentProject({ name, description, settlementDecimals, date }),
     }),
@@ -324,7 +337,7 @@ export default function App() {
         projects={projectsOfGroup}
         expenses={expensesOfGroup}
         isMe={currentMember.id === myId}
-        onBack={back}
+        onBack={goUp}
         onUpdate={(updates) => updateMember(currentGroup.id, currentMember.id, updates)}
         onDelete={() => {
           deleteMember(currentGroup.id, currentMember.id);
@@ -338,7 +351,7 @@ export default function App() {
         group={currentGroup}
         project={currentProject}
         expenseCount={expensesOfProject.length}
-        onBack={back}
+        onBack={goUp}
         onSave={(name, description, settlementDecimals, date) => {
           updateCurrentProject({ name, description, settlementDecimals, date });
           back();
@@ -355,12 +368,12 @@ export default function App() {
         membersById={membersById}
         myId={myId}
         onSwitchIdentity={switchIdentity}
-        onBack={back}
+        onBack={goUp}
         tab={route.tab}
         onTabChange={(tab) => replace({ ...route, tab, editor: null })}
         editor={route.editor}
         onOpenEditor={(mode, expenseId) => navigate({ ...route, editor: { mode, expenseId } })}
-        onCloseEditor={() => replace({ ...route, editor: null })}
+        onCloseEditor={goUp}
         onOpenSettings={() => navigate({ ...route, editor: null, settings: true })}
         onShare={() =>
           setSharing({
@@ -380,7 +393,7 @@ export default function App() {
         group={currentGroup}
         projectCount={projectsOfGroup.length}
         expenseCount={expensesOfGroup.length}
-        onBack={back}
+        onBack={goUp}
         onSave={(name, description) => {
           updateGroupFields(currentGroup.id, { name, description });
           back();
@@ -397,7 +410,7 @@ export default function App() {
         projects={projectsOfGroup}
         expenses={expensesOfGroup}
         myId={myId}
-        onBack={back}
+        onBack={goUp}
         onOpenProject={(projectId) => navigate({ screen: "project", groupId: currentGroup.id, projectId, tab: "expenses" })}
         onCreateProject={createProject}
         onAddMember={(name) => addMemberToGroup(currentGroup.id, name)}

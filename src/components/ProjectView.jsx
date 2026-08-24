@@ -163,7 +163,14 @@ export function ProjectView({
             />
           )}
           {tab === "stats" && <StatsPage project={project} expenses={expenses} membersById={membersById} myId={myId} />}
-          {tab === "members" && <ProjectMembers group={group} project={project} onToggle={actions.toggleProjectMember} />}
+          {tab === "members" && (
+            <ProjectMembers
+              group={group}
+              project={project}
+              onToggle={actions.toggleProjectMember}
+              onMove={actions.moveProjectMember}
+            />
+          )}
         </>
       )}
     </div>

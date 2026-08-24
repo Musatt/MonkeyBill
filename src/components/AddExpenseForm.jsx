@@ -190,7 +190,7 @@ export function AddExpenseForm({ project, allMembers, initialValues, isEdit, onS
   };
 
   const hours = Array.from({ length: 24 }, (_, i) => String(i).padStart(2, "0"));
-  const minutes = Array.from({ length: 12 }, (_, i) => String(i * 5).padStart(2, "0"));
+  const minutes = Array.from({ length: 60 }, (_, i) => String(i).padStart(2, "0"));
   const invalidReason = validationMessage();
 
   // 「最後編輯」只在這裡顯示。列表上每筆都掛一個名字會讓畫面上的人名太多。

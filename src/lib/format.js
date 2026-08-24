@@ -11,9 +11,7 @@ export function todayStr(d = new Date()) {
 
 export function nowHHMM() {
   const d = new Date();
-  const h = String(d.getHours()).padStart(2, "0");
-  const m = String(Math.floor(d.getMinutes() / 5) * 5).padStart(2, "0");
-  return { hour: h, minute: m };
+  return { hour: String(d.getHours()).padStart(2, "0"), minute: String(d.getMinutes()).padStart(2, "0") };
 }
 
 export function decimalsOf(cur) {

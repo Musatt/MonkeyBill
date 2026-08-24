@@ -33,13 +33,13 @@ VITE_USE_REAL_DB=1
 要有人到 Supabase 後台按 Resume project 才會恢復（資料不會不見，一年內都可恢復）。
 
 只有真正的 API／資料庫請求算活動，登入後台點來點去不算。
-所以  每天固定戳兩次，讓計時器永遠不會走到 7 天。
+所以 `.github/workflows/keepalive.yml` 每天固定戳兩次，讓計時器永遠不會走到 7 天。
 
 要注意 GitHub 會停用「repo 閒置超過 60 天」的排程工作流程（會寄信通知），
 屆時到 Actions 頁面按啟用、或隨便推一個 commit 即可恢復。
 保活失敗時工作流程會紅燈並寄信，那通常代表專案真的被暫停了。
 
-
+## 架構
 
 ```
 src/
@@ -54,7 +54,7 @@ src/
     money.js            分帳核心運算 ★改這裡一定要跑 npm test
     money.test.mjs      回歸測試
     format.js           日期、金額格式、成員查名
-    localPrefs.js       這台裝置記住的身份與已解鎖群組
+    localPrefs.js       這台裝置記住的身分與已解鎖群組
     seed.js             全新資料庫時的範例資料
   components/           各畫面
 ```

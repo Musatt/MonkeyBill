@@ -27,7 +27,19 @@ VITE_USE_REAL_DB=1
 **第一次要先做一次設定**：GitHub repo → Settings → Pages → Source 選 **GitHub Actions**
 （原本是 Deploy from a branch）。改完之後根目錄那個手工編譯的 `index.html` 就沒有作用了，可以刪掉。
 
-## 架構
+## Supabase 免費方案會休眠
+
+免費專案「7 天內資料庫查詢過少」就會被暫停，暫停後 App 會顯示「連不上雲端資料」，
+要有人到 Supabase 後台按 Resume project 才會恢復（資料不會不見，一年內都可恢復）。
+
+只有真正的 API／資料庫請求算活動，登入後台點來點去不算。
+所以  每天固定戳兩次，讓計時器永遠不會走到 7 天。
+
+要注意 GitHub 會停用「repo 閒置超過 60 天」的排程工作流程（會寄信通知），
+屆時到 Actions 頁面按啟用、或隨便推一個 commit 即可恢復。
+保活失敗時工作流程會紅燈並寄信，那通常代表專案真的被暫停了。
+
+
 
 ```
 src/

@@ -1,0 +1,42 @@
+name: Keep Supabase awake
+
+# Supabase 免費方案會把「7 天內資料庫查詢過少」的專案暫停，
+# 暫停後朋友打開 App 只會看到「連不上雲端資料」，要有人登入後台按 Resume 才會恢復。
+# 只有真正的 API／資料庫請求算活動，登入後台點來點去不算，所以這裡每天固定戳幾下。
+#
+# 注意：GitHub 會停用「repo 閒置超過 60 天」的排程工作流程（會寄信通知），
+# 屆時到 Actions 頁面按啟用、或隨便推一個 commit 即可恢復。
+
+on:
+  schedule:
+    # UTC。刻意避開整點，整點排隊的工作特別多、容易被延後。
+    - cron: "17 3 * * *"   # 台灣時間 11:17
+    - cron: "43 15 * * *"  # 台灣時間 23:43
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 送出讀取請求喚醒資料庫
+        env:
+          # 這把是 publishable key，本來就跟著前端程式一起公開，
+          # 寫在這裡不會多洩漏任何東西。之後若換過 key，這裡也要一起更新。
+          SUPABASE_URL: https://nalpftuibhsjbtvezssd.supabase.co
+          SUPABASE_KEY: sb_publishable_vo1ST_2Dak_rmIl62kTKww_SMnFWIB6
+        run: |
+          set -euo pipefail
+          # 只取 id 欄位，不把帳目內容拉出來
+          for i in 1 2 3; do
+            code=$(curl -sS -o /dev/null -w '%{http_code}' \
+              -H "apikey: $SUPABASE_KEY" \
+              -H "Authorization: Bearer $SUPABASE_KEY" \
+              "$SUPABASE_URL/rest/v1/app_data?id=eq.main&select=id")
+            echo "第 $i 次請求：HTTP $code"
+            if [ "$code" != "200" ]; then
+              echo "::error::Supabase 沒有正常回應（HTTP $code）。專案可能已被暫停，請到 Supabase 後台按 Resume project。"
+              exit 1
+            fi
+            sleep 5
+          done
+          echo "資料庫正常，閒置計時器已重置。"

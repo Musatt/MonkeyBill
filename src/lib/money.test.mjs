@@ -79,5 +79,72 @@ console.log("\n[防呆]");
   check("沒有付款人時不會 crash", typeof computeItemAllocation(e).shares.a === "number");
 }
 
+console.log("\n[還款後不能冒出多餘餘額 —— 進位尾差回歸測試]");
+{
+  // 2416 元 12 人均分，每人真實分攤 201.333…
+  // 舊版分攤算到小數兩位(201.34)、結算叫人付 202，付完多出 0.66，
+  // 再進位一次就變成整整 +1，還會產生叫別人付錢給他的假轉帳。
+  const members = Array.from({ length: 12 }, (_, i) => `m${i}`);
+  const payer = members[0];
+  const debtor = members[1];
+  const expense = mk({
+    amount: 2416,
+    baseAmount: 2416,
+    payers: [{ memberId: payer, amount: 2416 }],
+    splitType: "equal",
+    splitMemberIds: [...members],
+  });
+  for (const d of [0, 1, 2]) {
+    const rec1 = reconcileBalances(computeBalances(members, [expense], d), d);
+    const owed = -rec1[debtor];
+    const repay = { itemType: "transfer", baseAmount: owed, fromMemberId: debtor, toMemberId: payer };
+    const raw2 = computeBalances(members, [expense, repay], d);
+    const rec2 = reconcileBalances(raw2, d);
+    check(`結算取 ${d} 位：還款後該員餘額歸零`, (rec2[debtor] ?? 0) === 0, { 顯示: rec2[debtor], 真實: raw2[debtor] });
+    check(`結算取 ${d} 位：還款後總和仍為 0`, Math.abs(sum(rec2)) < 1e-9, { sum: sum(rec2) });
+    check(
+      `結算取 ${d} 位：不會冒出付錢給已還清者的假轉帳`,
+      !simplifyDebts(rec2, d).some((t) => t.to === debtor),
+      simplifyDebts(rec2, d)
+    );
+  }
+}
+
+console.log("\n[多人共同付款也不能破壞平帳]");
+for (const d of [0, 1, 2]) {
+  const e = mk({
+    amount: 700,
+    baseAmount: 699.93,
+    payers: [{ memberId: "a", amount: 400 }, { memberId: "b", amount: 300 }],
+    splitType: "equal",
+    splitMemberIds: ["a", "b", "c"],
+  });
+  const b = computeBalances(["a", "b", "c"], [e], d);
+  check(`結算取 ${d} 位：多人共同付款總和為 0`, Math.abs(sum(b)) < 1e-9, b);
+}
+
+console.log("\n[所有人依序還清後應完全結清]");
+{
+  const members = Array.from({ length: 12 }, (_, i) => `m${i}`);
+  const expense = mk({
+    amount: 2416,
+    baseAmount: 2416,
+    payers: [{ memberId: members[0], amount: 2416 }],
+    splitType: "equal",
+    splitMemberIds: [...members],
+  });
+  const d = 0;
+  const items = [expense];
+  for (let guard = 0; guard < 40; guard++) {
+    const txns = simplifyDebts(reconcileBalances(computeBalances(members, items, d), d), d);
+    if (txns.length === 0) break;
+    const t = txns[0];
+    items.push({ itemType: "transfer", baseAmount: t.amount, fromMemberId: t.from, toMemberId: t.to });
+  }
+  const finalRec = reconcileBalances(computeBalances(members, items, d), d);
+  check("依序還清後沒有殘留餘額", Object.values(finalRec).every((v) => Math.abs(v) < 1e-9), finalRec);
+  check("還款筆數 = 人數-1（沒有多餘的來回轉帳）", items.length - 1 === members.length - 1, { 轉帳筆數: items.length - 1 });
+}
+
 console.log(`\n${fail === 0 ? "全部通過" : "有失敗"}：${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);

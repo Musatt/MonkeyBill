@@ -4,7 +4,7 @@ import { computeBalances, reconcileBalances, simplifyDebts, oneCollectorSettleme
 
 export function SettlementPage({ project, expenses, membersById, myId, onModeChange, onMarkPaid }) {
   const decimals = projectDecimals(project);
-  const balances = useMemo(() => computeBalances(project.memberIds, expenses), [project.memberIds, expenses]);
+  const balances = useMemo(() => computeBalances(project.memberIds, expenses, decimals), [project.memberIds, expenses, decimals]);
   const reconciled = useMemo(() => reconcileBalances(balances, decimals), [balances, decimals]);
   const [payModalTxn, setPayModalTxn] = useState(null);
 

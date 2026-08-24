@@ -41,7 +41,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
     return { spend: build(spendingExpenses), collect: build(collectionExpenses) };
   }, [spendingExpenses, collectionExpenses]);
 
-  const rawBalances = useMemo(() => computeBalances(project.memberIds, expenses), [project.memberIds, expenses]);
+  const rawBalances = useMemo(() => computeBalances(project.memberIds, expenses, decimals), [project.memberIds, expenses, decimals]);
   const balances = useMemo(() => reconcileBalances(rawBalances, decimals), [rawBalances, decimals]);
 
   const personal = useMemo(() => {
@@ -50,7 +50,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
       const lists = emptyCategoryMap(() => []);
       let total = 0;
       items.forEach((e) => {
-        const { shares } = computeItemAllocation(e);
+        const { shares } = computeItemAllocation(e, decimals);
         const share = shares[viewMemberId];
         if (share === undefined) return;
         const key = amounts[e.category] !== undefined ? e.category : "other";
@@ -149,7 +149,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
             itemsByCategory={personal.spend.lists}
             currency={project.baseCurrency}
             decimals={decimals}
-            getAmount={(item) => -(computeItemAllocation(item).shares[viewMemberId] || 0)}
+            getAmount={(item) => -(computeItemAllocation(item, decimals).shares[viewMemberId] || 0)}
             colorize
           />
 
@@ -161,7 +161,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
                 itemsByCategory={personal.collect.lists}
                 currency={project.baseCurrency}
                 decimals={decimals}
-                getAmount={(item) => computeItemAllocation(item).shares[viewMemberId] || 0}
+                getAmount={(item) => computeItemAllocation(item, decimals).shares[viewMemberId] || 0}
                 colorize
               />
             </>

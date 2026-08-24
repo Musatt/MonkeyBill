@@ -31,7 +31,7 @@ export function MemberDetailPage({ member, groupName, groupMembers, projects, ex
       // 已被移出專案、但歷史紀錄裡還有他的人也要算進來
       const memberIdsForCalc = [...new Set([...project.memberIds, member.id])];
       const decimals = projectDecimals(project);
-      const reconciled = reconcileBalances(computeBalances(memberIdsForCalc, projectExpenses), decimals);
+      const reconciled = reconcileBalances(computeBalances(memberIdsForCalc, projectExpenses, decimals), decimals);
       const bal = reconciled[member.id] || 0;
       if (Math.abs(bal) > 0.005) results.push({ project, balance: bal, decimals });
     });

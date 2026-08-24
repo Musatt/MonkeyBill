@@ -216,7 +216,7 @@ export function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdi
           const cat = categoryOf(e.category);
           const payers = e.payers || [];
           const isCollection = itemType === "collection";
-          const myAmount = personalItemAmount(e, myId);
+          const myAmount = personalItemAmount(e, myId, decimals);
           const payerVerb = isCollection ? "收款" : "付款";
           // 單一付款人時金額就是總額，不必再重複一次數字
           const payerText =

@@ -38,62 +38,71 @@ export function computePayerBaseAmounts(expense) {
   return result;
 }
 
-export function computeItemAllocation(expense) {
-  // 每個分攤人的金額無條件進位到小數點後兩位（不管幣別）。
-  // 進位後大家合計會比原始金額多出一點（excess），這筆多出來的錢實際上是
-  // 流向付款人的，所以要「加」到金額最大的付款人身上。
-  // （早期版本這裡寫成減，會讓 sum(balances) 不等於 0，誤差變成兩倍。）
+/**
+ * 單筆項目的分攤與付款分配。
+ *
+ * decimals 是專案的結算位數。分攤金額直接無條件進位到「結算單位」，
+ * 而不是固定的小數兩位——否則整數結算的專案會算出 201.34 這種分攤，
+ * 結算時再進位成 202 叫人付，付完就多出 0.66 的溢繳，
+ * 下次打開結算頁那 0.66 又被進位成整整 1 元（還會冒出假的轉帳建議）。
+ * 分攤時就對齊結算單位，餘額全程都是整數，尾差根本不會產生。
+ *
+ * 付款人拿回的錢，合計必須剛好等於分攤金額的合計，整份帳才會平。
+ * 所以除了金額最大的付款人以外各自進位，由他吸收尾差——
+ * 若每個付款人各自進位，多人共同付款時合計最多會差 n×0.5，sum(balances) 就不為 0 了。
+ */
+export function computeItemAllocation(expense, decimals = 2) {
   const rawShares = computeExpenseShares(expense);
   const shares = {};
   let sumRounded = 0;
   Object.entries(rawShares).forEach(([id, v]) => {
-    const r = roundFavorReceiver(v, 2);
+    const r = roundFavorReceiver(v, decimals);
     shares[id] = r;
     sumRounded += r;
   });
-  const excess = sumRounded - expense.baseAmount;
 
-  const payerCredits = { ...computePayerBaseAmounts(expense) };
-  const payerIds = Object.keys(payerCredits);
-  if (payerIds.length > 0 && Math.abs(excess) > 1e-9) {
-    let maxId = payerIds[0];
-    payerIds.forEach((id) => {
-      if (payerCredits[id] > payerCredits[maxId]) maxId = id;
-    });
-    payerCredits[maxId] = payerCredits[maxId] + excess;
+  const rawCredits = computePayerBaseAmounts(expense);
+  const payerIds = Object.keys(rawCredits).sort((a, b) => rawCredits[b] - rawCredits[a]);
+  const payerCredits = {};
+  let othersSum = 0;
+  for (let i = 1; i < payerIds.length; i++) {
+    payerCredits[payerIds[i]] = roundTo(rawCredits[payerIds[i]], decimals);
+    othersSum += payerCredits[payerIds[i]];
   }
-  Object.keys(payerCredits).forEach((id) => (payerCredits[id] = roundTo(payerCredits[id], 2)));
+  if (payerIds.length > 0) payerCredits[payerIds[0]] = roundTo(sumRounded - othersSum, decimals);
 
   return { shares, payerCredits };
 }
 
 // 某個人在單一項目裡的個人金額（負數＝花錢，正數＝收錢）。
 // 不是該項目的參與者時回傳 null，呼叫端才能選擇不顯示而不是顯示 0。
-export function personalItemAmount(item, memberId) {
+export function personalItemAmount(item, memberId, decimals = 2) {
   const itemType = item.itemType || "expense";
   if (itemType === "transfer") {
-    if (item.fromMemberId === memberId) return -item.baseAmount;
-    if (item.toMemberId === memberId) return item.baseAmount;
+    const amt = roundTo(item.baseAmount, decimals);
+    if (item.fromMemberId === memberId) return -amt;
+    if (item.toMemberId === memberId) return amt;
     return null;
   }
-  const { shares } = computeItemAllocation(item);
+  const { shares } = computeItemAllocation(item, decimals);
   if (shares[memberId] === undefined) return null;
   return itemType === "collection" ? shares[memberId] : -shares[memberId];
 }
 
-export function computeBalances(memberIds, expenses) {
+export function computeBalances(memberIds, expenses, decimals = 2) {
   const balances = {};
   memberIds.forEach((id) => (balances[id] = 0));
   expenses.forEach((exp) => {
     const itemType = exp.itemType || "expense";
     if (itemType === "transfer") {
-      const amt = exp.baseAmount;
+      // 轉帳金額也對齊結算單位，才會跟畫面上顯示的數字一致
+      const amt = roundTo(exp.baseAmount, decimals);
       balances[exp.fromMemberId] = (balances[exp.fromMemberId] || 0) + amt;
       balances[exp.toMemberId] = (balances[exp.toMemberId] || 0) - amt;
       return;
     }
     const sign = itemType === "collection" ? -1 : 1;
-    const { shares, payerCredits } = computeItemAllocation(exp);
+    const { shares, payerCredits } = computeItemAllocation(exp, decimals);
     Object.entries(payerCredits).forEach(([id, amt]) => {
       balances[id] = (balances[id] || 0) + sign * amt;
     });
@@ -164,9 +173,7 @@ export function oneCollectorSettlement(balances, collectorId, decimals) {
 // 專案是否已結清
 export function isProjectSettled(project, projectExpenses) {
   if (projectExpenses.length === 0) return true;
-  const reconciled = reconcileBalances(
-    computeBalances(project.memberIds, projectExpenses),
-    project.settlementDecimals ?? 0
-  );
+  const decimals = project.settlementDecimals ?? 0;
+  const reconciled = reconcileBalances(computeBalances(project.memberIds, projectExpenses, decimals), decimals);
   return Object.values(reconciled).every((v) => Math.abs(v) < 0.005);
 }

@@ -380,6 +380,7 @@ export default function App() {
     return shell(
       <LoginScreen
         users={data.users}
+        groups={data.groups}
         onLogin={(userId) => setSession({ userId, backstage: false })}
         onCreate={(name, passwordHash) => setSession({ userId: createUser(name, passwordHash), backstage: false })}
         onBackstage={() => setBackstageGate(true)}

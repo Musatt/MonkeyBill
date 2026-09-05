@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 import { BACKSTAGE_NAME, MASTER_PASSWORD } from "../constants.js";
 import { hashPassword, verifyPassword, hasPassword } from "../lib/auth.js";
 
@@ -6,7 +6,7 @@ import { hashPassword, verifyPassword, hasPassword } from "../lib/auth.js";
  * 開啟 App 的第一關：選身分。
  * 暱稱就是帳號，可以設密碼也可以留空。輸入「後臺管理」＋通用密碼會進入後臺。
  */
-export function LoginScreen({ users, onLogin, onCreate, onBackstage }) {
+export function LoginScreen({ users, groups, onLogin, onCreate, onBackstage }) {
   const [mode, setMode] = useState("pick"); // 'pick' | 'password' | 'create'
   const [picked, setPicked] = useState(null);
   const [pw, setPw] = useState("");
@@ -20,6 +20,26 @@ export function LoginScreen({ users, onLogin, onCreate, onBackstage }) {
   const active = Object.values(users)
     .filter((u) => !u.disabled)
     .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
+
+  // 依群組分區，人多的時候才找得到自己。
+  // 同一個人若在多個群組，每個群組底下都會出現一次——刻意的，哪一區找到都一樣。
+  const sections = useMemo(() => {
+    const byId = Object.fromEntries(active.map((u) => [u.id, u]));
+    const out = Object.values(groups || {})
+      .map((g) => ({
+        key: g.id,
+        title: g.name,
+        members: g.memberIds.map((id) => byId[id]).filter(Boolean),
+      }))
+      .filter((s) => s.members.length > 0)
+      .sort((a, b) => a.title.localeCompare(b.title, "zh-Hant"));
+
+    // 還沒被加進任何群組的帳號單獨一區，否則他們會找不到自己
+    const inAnyGroup = new Set(out.flatMap((s) => s.members.map((m) => m.id)));
+    const orphans = active.filter((u) => !inAnyGroup.has(u.id));
+    if (orphans.length > 0) out.push({ key: "__none__", title: "還沒加入群組", members: orphans });
+    return out;
+  }, [active, groups]);
 
   const pick = (u) => {
     setError("");
@@ -145,17 +165,22 @@ export function LoginScreen({ users, onLogin, onCreate, onBackstage }) {
       </div>
 
       <div className="section-label">你是誰？</div>
-      {active.length > 0 ? (
-        <div className="member-pick-grid">
-          {active.map((u) => (
-            <button key={u.id} className="member-pick" onClick={() => pick(u)}>
-              {u.name}
-              {hasPassword(u) && <span className="lock-mark"> 🔒</span>}
-            </button>
-          ))}
-        </div>
-      ) : (
+      {active.length === 0 ? (
         <div className="empty-hint">還沒有任何身分，建立第一個吧</div>
+      ) : (
+        sections.map((s) => (
+          <div key={s.key} className="login-section">
+            <div className="login-section-title">{s.title}</div>
+            <div className="member-pick-grid">
+              {s.members.map((u) => (
+                <button key={u.id} className="member-pick" onClick={() => pick(u)}>
+                  {u.name}
+                  {hasPassword(u) && <span className="lock-mark"> 🔒</span>}
+                </button>
+              ))}
+            </div>
+          </div>
+        ))
       )}
 
       <button className="btn-outline full-width" style={{ marginTop: 16 }} onClick={() => setMode("create")}>

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from "react";
 import { CATEGORIES } from "../constants.js";
 import { formatMoney, formatSigned, projectDecimals } from "../lib/format.js";
 import { computeBalances, reconcileBalances, computeItemAllocation } from "../lib/money.js";
+import { TruncText } from "./primitives.jsx";
 
 const sortByDateDesc = (arr) => [...arr].sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
 
@@ -38,7 +39,15 @@ function StatPanel({ label, value, tone, facts, note }) {
  * 比原本六條各自為政的長條更快看出「錢主要花在哪」。
  */
 function Composition({ amounts, itemsByCategory, currency, decimals, getAmount, signPrefix }) {
-  const [expanded, setExpanded] = useState(null);
+  // 用 Set 而不是單一 id：展開一個分類時，其他已經展開的要留著
+  const [expandedSet, setExpandedSet] = useState(() => new Set());
+  const toggle = (id) =>
+    setExpandedSet((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
 
   const rows = CATEGORIES.map((c) => ({ ...c, amount: amounts[c.id] || 0 })).filter((r) => r.amount > 0.0000001);
   const total = rows.reduce((s, r) => s + r.amount, 0);
@@ -63,13 +72,13 @@ function Composition({ amounts, itemsByCategory, currency, decimals, getAmount, 
         {rows.map((r) => {
           const items = itemsByCategory[r.id] || [];
           const pct = Math.round((r.amount / total) * 100);
-          const open = expanded === r.id;
+          const open = expandedSet.has(r.id);
           return (
             <div key={r.id}>
               <button
                 type="button"
                 className={"comp-row" + (open ? " comp-row-open" : "")}
-                onClick={() => setExpanded(open ? null : r.id)}
+                onClick={() => toggle(r.id)}
                 disabled={items.length === 0}
                 aria-expanded={open}
               >
@@ -85,7 +94,7 @@ function Composition({ amounts, itemsByCategory, currency, decimals, getAmount, 
                     const amt = getAmount(item);
                     return (
                       <div key={item.id} className="comp-item">
-                        <span className="comp-item-note">{item.note}</span>
+                        <TruncText className="comp-item-note" text={item.note} label="項目說明" />
                         <span className="comp-item-date mono">{item.date}</span>
                         <span className="comp-item-amt mono">
                           {signPrefix}
@@ -182,6 +191,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
 
       {tab === "group" ? (
         <>
+          <div className="stat-head">支出</div>
           <StatPanel
             label="專案總支出"
             value={formatMoney(totalSpend, project.baseCurrency, decimals)}
@@ -205,13 +215,21 @@ export function StatsPage({ project, expenses, membersById, myId }) {
 
           {totalCollected > 0 && (
             <>
+              {/* 收入的版面跟支出完全一致，才不會讓人以為是另一種東西 */}
               <div className="stat-head">收入</div>
               <StatPanel
                 label="收入總額"
                 value={formatMoney(totalCollected, project.baseCurrency, decimals)}
                 tone="text-pos"
-                facts={[{ label: "筆數", value: `${collectionExpenses.length} 筆` }]}
+                facts={[
+                  { label: "筆數", value: `${collectionExpenses.length} 筆` },
+                  { label: "參與人數", value: `${headcount} 人` },
+                  { label: "平均每人", value: formatMoney(totalCollected / headcount, project.baseCurrency, decimals) },
+                ]}
+                note="不含支出與轉帳項目"
               />
+
+              <div className="stat-head">分類佔比</div>
               <Composition
                 amounts={groupBuckets.collect.amounts}
                 itemsByCategory={groupBuckets.collect.lists}

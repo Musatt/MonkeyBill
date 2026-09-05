@@ -38,6 +38,7 @@ export default [
         HTMLSelectElement: "readonly",
         Uint8Array: "readonly",
         process: "readonly",
+        ResizeObserver: "readonly",
       },
     },
     rules: {

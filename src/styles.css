@@ -710,3 +710,13 @@ select.input {
   font-size: var(--fs-meta); color: var(--text-dim);
 }
 .stat-aside b { color: var(--text); }
+
+/* 被截斷的文字：點了看全文 */
+.trunc-tappable {
+  cursor: pointer;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+  text-underline-offset: 3px;
+  text-decoration-color: var(--text-dim);
+}
+.trunc-full { font-size: var(--fs-lead); line-height: 1.7; overflow-wrap: anywhere; }

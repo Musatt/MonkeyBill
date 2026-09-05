@@ -214,3 +214,58 @@ export function SaveBanner({ saveState, onRetry }) {
     </div>
   );
 }
+
+/**
+ * 會被截斷的文字。
+ * 只有真的被 … 截掉時才變成可點，點了用浮動視窗顯示全文——
+ * 沒被截斷卻可以點會讓人以為壞掉。
+ */
+export function TruncText({ text, className, label }) {
+  const ref = React.useRef(null);
+  const [truncated, setTruncated] = React.useState(false);
+  const [open, setOpen] = React.useState(false);
+
+  React.useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => setTruncated(el.scrollWidth > el.clientWidth + 1);
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const ro = new ResizeObserver(measure);
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, [text]);
+
+  return (
+    <>
+      <span
+        ref={ref}
+        className={(className || "") + (truncated ? " trunc-tappable" : "")}
+        onClick={truncated ? () => setOpen(true) : undefined}
+        role={truncated ? "button" : undefined}
+        tabIndex={truncated ? 0 : undefined}
+        onKeyDown={
+          truncated
+            ? (e) => {
+                if (e.key === "Enter" || e.key === " ") {
+                  e.preventDefault();
+                  setOpen(true);
+                }
+              }
+            : undefined
+        }
+      >
+        {text}
+      </span>
+      {open && (
+        <div className="modal-backdrop" onClick={() => setOpen(false)} role="dialog" aria-modal="true">
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            {label && <div className="onboard-eyebrow">{label}</div>}
+            <div className="trunc-full">{text}</div>
+            <button className="btn-ghost full-width" onClick={() => setOpen(false)}>關閉</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}

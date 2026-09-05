@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import { CATEGORIES } from "../constants.js";
 import { categoryOf, formatMoney, projectDecimals } from "../lib/format.js";
 import { personalItemAmount } from "../lib/money.js";
+import { TruncText } from "./primitives.jsx";
 
 const KIND_LABEL = { expense: "支出", collection: "收入", transfer: "轉帳" };
 
@@ -128,7 +129,7 @@ export function ExpenseList({ project, expenses, membersById, myId, canDelete, o
         </div>
 
         <div className="item-row2">
-          <span className="item-desc">{e.note}</span>
+          <TruncText className="item-desc" text={e.note} label="項目說明" />
           <span className={"item-amt mono amt-" + itemType}>{formatMoney(e.baseAmount, project.baseCurrency, decimals)}</span>
         </div>
 

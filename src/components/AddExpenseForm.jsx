@@ -1,8 +1,92 @@
-import React, { useState, useRef, useLayoutEffect } from "react";
+import React, { useState } from "react";
 import { CATEGORIES } from "../constants.js";
 import { todayStr, nowHHMM, formatMoney, formatTimestamp, projectDecimals, uid } from "../lib/format.js";
 import { evalAmount, isExpression, groupDigits } from "../lib/calc.js";
 import { DatePickerBox, CurrencySelect } from "./primitives.jsx";
+
+/**
+ * 金額鍵盤：自己畫的計算機，取代系統的數字鍵盤。
+ * 金額框是 <button> 不是 <input>，所以手機不會跳出系統鍵盤，只會開這一張。
+ * 值先存在這裡，按「完成」才寫回表單，中途按取消不影響原本的金額。
+ */
+function AmountKeypad({ initial, currency, decimals, onCancel, onConfirm }) {
+  const [val, setVal] = useState((initial || "").replace(/,/g, ""));
+  const result = evalAmount(val);
+  const showExpr = isExpression(val);
+  const push = (s) => setVal((v) => v + s);
+  const canConfirm = val.trim() === "" || result !== null;
+
+  const rows = [
+    [
+      { k: "C", cls: "kp-clear", fn: () => setVal("") },
+      { k: "(", cls: "kp-fn", fn: () => push("(") },
+      { k: ")", cls: "kp-fn", fn: () => push(")") },
+      { k: "⌫", cls: "kp-fn", fn: () => setVal((v) => v.slice(0, -1)), label: "刪除一個字元" },
+    ],
+    [
+      { k: "7", fn: () => push("7") },
+      { k: "8", fn: () => push("8") },
+      { k: "9", fn: () => push("9") },
+      { k: "÷", cls: "kp-op", fn: () => push("÷") },
+    ],
+    [
+      { k: "4", fn: () => push("4") },
+      { k: "5", fn: () => push("5") },
+      { k: "6", fn: () => push("6") },
+      { k: "×", cls: "kp-op", fn: () => push("×") },
+    ],
+    [
+      { k: "1", fn: () => push("1") },
+      { k: "2", fn: () => push("2") },
+      { k: "3", fn: () => push("3") },
+      { k: "−", cls: "kp-op", fn: () => push("-") },
+    ],
+    [
+      { k: "0", fn: () => push("0") },
+      { k: "00", fn: () => push("00") },
+      { k: ".", fn: () => push(".") },
+      { k: "＋", cls: "kp-op", fn: () => push("+") },
+    ],
+  ];
+
+  return (
+    <>
+      <div className="keypad-backdrop" onClick={onCancel} />
+      <div className="keypad-sheet" role="dialog" aria-modal="true" aria-label="金額鍵盤">
+        <div className="keypad-display">
+          <div className="keypad-value mono">{groupDigits(val) || "0"}</div>
+          <div className="keypad-result mono">
+            {showExpr && (result === null ? "算式還沒寫完" : `= ${formatMoney(result, currency, decimals)}`)}
+          </div>
+        </div>
+        <div className="keypad-grid">
+          {rows.map((row, ri) =>
+            row.map((b) => (
+              <button
+                key={`${ri}-${b.k}`}
+                className={"kp " + (b.cls || "")}
+                onClick={b.fn}
+                aria-label={b.label}
+              >
+                {b.k}
+              </button>
+            ))
+          )}
+        </div>
+        <div className="row-form keypad-actions">
+          <button className="btn-ghost" onClick={onCancel}>取消</button>
+          <button
+            className="btn-accent"
+            disabled={!canConfirm}
+            onClick={() => onConfirm(result === null ? "" : groupDigits(String(result)))}
+          >
+            完成
+          </button>
+        </div>
+      </div>
+    </>
+  );
+}
 
 export function AddExpenseForm({ project, allMembers, memberIds, initialValues, isEdit, onSave, onCancel }) {
   const projectMembers = memberIds.map((id) => allMembers[id]).filter(Boolean);
@@ -56,61 +140,7 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
   const [toId, setToId] = useState(initialValues?.toMemberId || projectMembers[1]?.id || projectMembers[0]?.id || "");
   const [confirmingSave, setConfirmingSave] = useState(false);
 
-  // ── 金額欄位：千分位 + 直接算式 ──────────────────────────────
-  // 加逗號會改變字串長度，游標會被系統丟到最後面，所以自己算游標該落在哪。
-  const amountRef = useRef(null);
-  const caretRef = useRef(null);
-  useLayoutEffect(() => {
-    if (caretRef.current !== null && amountRef.current) {
-      amountRef.current.setSelectionRange(caretRef.current, caretRef.current);
-      caretRef.current = null;
-    }
-  });
-
-  /** 寫入金額並補逗號；caretPos 是「還沒補逗號前」的游標位置。 */
-  const applyAmount = (rawValue, caretPos) => {
-    const stripped = rawValue.replace(/,/g, "");
-    // 游標前面有幾個非逗號字元，補完逗號後就把游標放回第幾個非逗號字元之後
-    const keep = rawValue.slice(0, caretPos).replace(/,/g, "").length;
-    const formatted = groupDigits(stripped);
-    let seen = 0;
-    let i = 0;
-    while (i < formatted.length && seen < keep) {
-      if (formatted[i] !== ",") seen++;
-      i++;
-    }
-    caretRef.current = i;
-    setAmount(formatted);
-  };
-
-  const onAmountChange = (e) => {
-    applyAmount(e.target.value, e.target.selectionStart ?? e.target.value.length);
-  };
-
-  /** 運算符按鍵：插在游標處，不是永遠接在最後面 */
-  const insertOp = (op) => {
-    const el = amountRef.current;
-    const start = el ? el.selectionStart : amount.length;
-    const end = el ? el.selectionEnd : amount.length;
-    applyAmount(amount.slice(0, start) + op + amount.slice(end), start + op.length);
-    if (el) el.focus();
-  };
-
-  const backspace = () => {
-    const el = amountRef.current;
-    let start = el ? el.selectionStart : amount.length;
-    const end = el ? el.selectionEnd : amount.length;
-    if (start === end && start > 0) {
-      start -= 1;
-      // 逗號是自動補的，退格要跳過它，不然按了像沒反應
-      if (amount[start] === "," && start > 0) start -= 1;
-    }
-    applyAmount(amount.slice(0, start) + amount.slice(end), start);
-    if (el) el.focus();
-  };
-
-  const amountIsExpr = isExpression(amount);
-  const amountResult = evalAmount(amount);
+  const [keypadOpen, setKeypadOpen] = useState(false);
 
   const payerLabel = itemType === "collection" ? "收款人" : "付款人";
   const payerModeLabels = itemType === "collection" ? ["單一收款人", "多人共同收款"] : ["單一付款人", "多人共同支出"];
@@ -279,51 +309,13 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
         {itemType === "transfer" && "純粹某人拿錢給某人，不分攤。"}
       </div>
 
-      {/* 金額是這張表單的主角，做大；幣別另外一格，不要擠在同一個框裡 */}
+      {/* 金額是這張表單的主角，做大。按下去開自訂鍵盤，不是系統的數字鍵盤。
+          幣別直接放下拉選單，它本身就是一格，不用再套一層框。 */}
       <div className="amount-line">
-        <div className="amount-box">
-          <input
-            ref={amountRef}
-            className="amount-input mono"
-            inputMode="decimal"
-            value={amount}
-            onChange={onAmountChange}
-            placeholder="0"
-            aria-label="金額"
-          />
-          {/* 帳單常常好幾個細項，直接在這欄算完就不用跳出去開計算機 */}
-          <div className="calc-keys">
-            {["+", "-", "×", "÷", "(", ")"].map((op) => (
-              <button
-                key={op}
-                className="calc-key"
-                onMouseDown={(e) => e.preventDefault()}
-                onClick={() => insertOp(op)}
-                tabIndex={-1}
-              >
-                {op}
-              </button>
-            ))}
-            <button
-              className="calc-key calc-key-del"
-              onMouseDown={(e) => e.preventDefault()}
-              onClick={backspace}
-              tabIndex={-1}
-              aria-label="刪除一個字元"
-            >
-              ⌫
-            </button>
-          </div>
-          {amountIsExpr && (
-            <div className={"calc-result mono" + (amountResult === null ? " calc-result-wait" : "")}>
-              {amountResult === null
-                ? "算式還沒寫完"
-                : `= ${formatMoney(amountResult, currency, decimals)}`}
-            </div>
-          )}
-        </div>
-        <div className="cur-box">
-          <div className="cur-box-label">幣別</div>
+        <button className="amount-box" onClick={() => setKeypadOpen(true)} aria-label="金額">
+          <span className={"amount-shown mono" + (amount ? "" : " amount-shown-empty")}>{amount || "0"}</span>
+        </button>
+        <div className="cur-slot">
           <CurrencySelect value={currency} onChange={setCurrency} />
         </div>
       </div>
@@ -555,6 +547,19 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
           </button>
         </div>
       </div>
+
+      {keypadOpen && (
+        <AmountKeypad
+          initial={amount}
+          currency={currency}
+          decimals={decimals}
+          onCancel={() => setKeypadOpen(false)}
+          onConfirm={(v) => {
+            setAmount(v);
+            setKeypadOpen(false);
+          }}
+        />
+      )}
 
       {/* 改別人的帳要再確認一次。用彈出視窗，不要讓同一顆按鈕按兩次意思不一樣。 */}
       {confirmingSave && (

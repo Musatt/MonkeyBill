@@ -191,6 +191,10 @@ select.input {
   padding: 0 13px 0 2px;
 }
 .picker-box .colon { color: var(--text-dim); flex-shrink: 0; }
+/* 日期有三個下拉，箭頭的位置縮到最小，年月日才不會被擠掉 */
+.picker-box-date { gap: 2px; padding: 0 4px; }
+.picker-box-date select { padding: 0 11px 0 1px; }
+.picker-box-date .colon { font-size: 13px; }
 
 .split-list { display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .split-row { display: flex; align-items: center; gap: 10px; }
@@ -865,46 +869,54 @@ select.input {
 }
 .form-hint { font-size: var(--fs-meta); color: var(--text-dim); margin-top: 6px; line-height: 1.6; }
 
-/* 金額輸入：整張表單的焦點。幣別分成獨立一格，不要塞在同一個框裡。 */
+/* 金額：不是輸入框而是一顆按鈕，手機才不會跳出系統鍵盤。
+   幣別就用下拉選單本身，它已經是一格了，不用再套框。 */
 .amount-line { display: flex; align-items: stretch; gap: 8px; margin-top: 12px; }
 .amount-box {
-  flex: 1; min-width: 0;
+  flex: 1; min-width: 0; display: flex; align-items: center;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 10px 12px 8px;
+  padding: 8px 14px; min-height: 56px; cursor: pointer; text-align: left;
+  font-family: inherit; color: var(--text);
 }
-.amount-input {
-  display: block; width: 100%; background: none; border: none; color: var(--text);
-  font-family: 'IBM Plex Mono', monospace; font-size: 30px; font-weight: 700;
-  letter-spacing: -0.02em; padding: 2px 0; margin: 0;
-  font-variant-numeric: tabular-nums;
+.amount-box:active { border-color: var(--accent); }
+.amount-shown {
+  font-size: 30px; font-weight: 700; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.amount-input:focus { outline: none; }
-.amount-input::placeholder { color: var(--border); }
+.amount-shown-empty { color: var(--border); }
 
-.cur-box {
-  flex: 0 0 92px; display: flex; flex-direction: column; justify-content: center;
-  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 8px 10px;
-}
-.cur-box-label { font-size: var(--fs-micro); color: var(--text-dim); letter-spacing: 0.04em; margin-bottom: 3px; }
-.cur-box .input { margin-top: 0; padding: 8px 26px 8px 8px; font-size: var(--fs-body); min-height: 34px; }
+.cur-slot { flex: 0 0 96px; display: flex; }
+.cur-slot .input { margin-top: 0; width: 100%; }
 
-/* 算式鍵：數字用系統鍵盤打，只補系統鍵盤沒有的運算符 */
-.calc-keys { display: flex; gap: 5px; margin-top: 8px; }
-.calc-key {
-  flex: 1; min-width: 0; background: var(--surface-2); border: 1px solid var(--border);
-  color: var(--text); border-radius: 6px; padding: 7px 0; min-height: 32px;
-  font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600;
-  cursor: pointer; line-height: 1;
+/* 自訂金額鍵盤：從畫面底部升起，像系統鍵盤一樣蓋住下半部 */
+.keypad-backdrop { position: fixed; inset: 0; background: rgba(10, 12, 16, 0.6); z-index: 55; }
+.keypad-sheet {
+  position: fixed; bottom: 0; left: 50%; transform: translateX(-50%);
+  width: 100%; max-width: 480px; z-index: 56;
+  background: var(--surface); border-top: 2px solid var(--border);
+  padding: 10px calc(12px + var(--sa-right)) calc(12px + var(--sa-bottom)) calc(12px + var(--sa-left));
 }
-.calc-key:active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
-.calc-key-del { color: var(--text-dim); font-size: 13px; }
-.calc-result {
-  margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--border);
-  font-size: var(--fs-lead); font-weight: 700; color: var(--accent-2);
-  font-variant-numeric: tabular-nums;
+.keypad-display {
+  text-align: right; padding: 4px 4px 8px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--border);
 }
-.calc-result-wait { color: var(--text-dim); font-weight: 400; font-size: var(--fs-meta); }
+.keypad-value {
+  font-size: 32px; font-weight: 700; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums; overflow-x: auto; white-space: nowrap;
+}
+.keypad-result { font-size: var(--fs-body); color: var(--accent-2); min-height: 19px; margin-top: 2px; }
+
+.keypad-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; }
+.kp {
+  min-height: 50px; border: 1px solid var(--border); border-radius: 6px;
+  background: var(--surface-2); color: var(--text); cursor: pointer;
+  font-family: 'IBM Plex Mono', monospace; font-size: 20px; font-weight: 600; line-height: 1;
+}
+.kp:active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.kp-op { color: var(--accent-2); }
+.kp-fn { background: var(--bg); color: var(--text-dim); font-size: 17px; }
+.kp-clear { background: var(--bg); color: var(--accent); font-size: 17px; font-weight: 700; }
+.keypad-actions { margin-top: 10px; }
 
 .amount-fx {
   margin-top: 12px; padding: 12px 14px;

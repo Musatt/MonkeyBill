@@ -133,21 +133,25 @@ export function DatePickerBox({ value, onChange }) {
     const maxDay = daysInMonth(ny, nm);
     onChange(`${ny}-${String(nm).padStart(2, "0")}-${String(Math.min(nd, maxDay)).padStart(2, "0")}`);
   };
+  // 選項裡不寫「年月日」，改用 / 分隔。三個下拉各自要留一個箭頭的位置，
+  // 手機上 375px 寬時多那三個字就會把日期擠到切掉。
   return (
-    <div className="picker-box">
+    <div className="picker-box picker-box-date">
       <select value={y} onChange={(e) => setPart(parseInt(e.target.value, 10), m, d)} aria-label="年">
         {years.map((yy) => (
-          <option key={yy} value={yy}>{yy}年</option>
+          <option key={yy} value={yy}>{yy}</option>
         ))}
       </select>
+      <span className="mono colon">/</span>
       <select value={m} onChange={(e) => setPart(y, parseInt(e.target.value, 10), d)} aria-label="月">
         {months.map((mm) => (
-          <option key={mm} value={mm}>{mm}月</option>
+          <option key={mm} value={mm}>{String(mm).padStart(2, "0")}</option>
         ))}
       </select>
+      <span className="mono colon">/</span>
       <select value={d} onChange={(e) => setPart(y, m, parseInt(e.target.value, 10))} aria-label="日">
         {days.map((dd) => (
-          <option key={dd} value={dd}>{dd}日</option>
+          <option key={dd} value={dd}>{String(dd).padStart(2, "0")}</option>
         ))}
       </select>
     </div>

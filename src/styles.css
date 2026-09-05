@@ -368,3 +368,19 @@ select.input {
   border-top: 1px solid var(--border); margin-top: 14px; z-index: 30;
 }
 .form-actions .row-form { margin-top: 0; }
+
+/* 帳號 / 權限相關 */
+.admin-tag {
+  display: inline-block; margin-left: 6px; padding: 1px 7px; border-radius: 999px;
+  font-size: 10px; font-weight: 700; line-height: 1.6;
+  background: color-mix(in srgb, var(--positive) 22%, var(--surface)); color: var(--positive);
+  border: 1px solid var(--positive);
+}
+.admin-dot { color: var(--positive); margin-left: 5px; font-weight: 700; }
+.lock-mark { font-size: 11px; }
+.del-btn-muted { color: var(--text-dim); opacity: 0.4; text-decoration: none; cursor: not-allowed; }
+.backstage-banner {
+  background: var(--accent-2); color: #1b2027; font-weight: 700; font-size: 12px;
+  text-align: center; padding: 8px; border-radius: 10px; letter-spacing: 0.08em;
+}
+.member-order-row .link-btn { flex-shrink: 0; font-size: 12px; }

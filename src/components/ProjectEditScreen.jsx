@@ -1,23 +1,15 @@
 import React, { useState } from "react";
-import { MASTER_PASSWORD } from "../constants.js";
 import { todayStr } from "../lib/format.js";
 import { TopBar, DatePickerBox } from "./primitives.jsx";
 
-/** 編輯專案：獨立畫面，不會把專案分頁的內容往下擠。 */
-export function ProjectEditScreen({ group, project, expenseCount, onBack, onSave, onDeleteProject }) {
+/** 編輯專案：獨立畫面。設定群組成員都能改，刪除只有管理者能做。 */
+export function ProjectEditScreen({ project, expenseCount, canDelete, onBack, onSave, onDeleteProject }) {
   const [pname, setPname] = useState(project.name);
   const [pdesc, setPdesc] = useState(project.description || "");
   const [pdecimals, setPdecimals] = useState(project.settlementDecimals ?? 0);
   const [pdate, setPdate] = useState(project.date || todayStr());
-  const [deleteStage, setDeleteStage] = useState(null); // null | 'password' | 'confirm'
-  const [deletePw, setDeletePw] = useState("");
-  const [deletePwError, setDeletePwError] = useState(false);
-
-  const resetDeleteStage = () => {
-    setDeleteStage(null);
-    setDeletePw("");
-    setDeletePwError(false);
-  };
+  const [confirming, setConfirming] = useState(false);
+  const [typed, setTyped] = useState("");
 
   const dirty =
     pname.trim() !== project.name ||
@@ -47,56 +39,32 @@ export function ProjectEditScreen({ group, project, expenseCount, onBack, onSave
       <div className="hint-text">這個專案裡所有 {project.baseCurrency} 金額都會用這個位數顯示與結算。</div>
 
       <div className="section-label" style={{ marginTop: 24 }}>刪除專案</div>
-      {deleteStage === null && (
-        <button
-          className="btn-outline btn-danger full-width"
-          onClick={() => setDeleteStage(group.password ? "password" : "confirm")}
-        >
+      {!canDelete ? (
+        <div className="hint-text">只有群組管理者可以刪除專案。</div>
+      ) : !confirming ? (
+        <button className="btn-outline btn-danger full-width" onClick={() => setConfirming(true)}>
           刪除專案
         </button>
-      )}
-      {deleteStage === "password" && (
+      ) : (
         <div className="card subtle">
-          <div className="section-label">請輸入群組密碼以繼續刪除</div>
+          <div className="hint-text hint-warn">
+            刪除「{project.name}」會一併刪除底下 {expenseCount} 筆項目，且無法復原。
+          </div>
+          <div className="hint-text" style={{ marginTop: 8 }}>
+            確定的話，請輸入專案名稱「{project.name}」：
+          </div>
           <input
-            className="input mono"
-            type="password"
-            inputMode="numeric"
-            value={deletePw}
-            onChange={(e) => {
-              setDeletePw(e.target.value);
-              setDeletePwError(false);
-            }}
-            autoFocus
+            className="input"
+            value={typed}
+            onChange={(e) => setTyped(e.target.value)}
+            placeholder={project.name}
+            style={{ marginTop: 6 }}
           />
-          {deletePwError && <div className="hint-text hint-warn">密碼不正確</div>}
           <div className="row-form" style={{ marginTop: 8 }}>
-            <button className="btn-ghost" onClick={resetDeleteStage}>取消</button>
-            <button
-              className="btn-accent"
-              onClick={() => {
-                if (deletePw === group.password || deletePw === MASTER_PASSWORD) {
-                  setDeleteStage("confirm");
-                  setDeletePw("");
-                  setDeletePwError(false);
-                } else {
-                  setDeletePwError(true);
-                }
-              }}
-            >
-              下一步
+            <button className="btn-ghost" onClick={() => { setConfirming(false); setTyped(""); }}>取消</button>
+            <button className="btn-accent" disabled={typed.trim() !== project.name} onClick={onDeleteProject}>
+              確定刪除專案
             </button>
-          </div>
-        </div>
-      )}
-      {deleteStage === "confirm" && (
-        <div className="card subtle">
-          <div className="hint-text">
-            確定要刪除「{project.name}」嗎？裡面 {expenseCount} 筆項目都會一併刪除，且無法復原。
-          </div>
-          <div className="row-form" style={{ marginTop: 8 }}>
-            <button className="btn-ghost" onClick={resetDeleteStage}>取消</button>
-            <button className="btn-accent" onClick={onDeleteProject}>確定刪除專案</button>
           </div>
         </div>
       )}

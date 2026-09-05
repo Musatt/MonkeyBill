@@ -8,10 +8,13 @@ import React, { useRef, useState } from "react";
  * 拖曳用 Pointer Events 而不是 HTML5 的 drag-and-drop——後者在觸控裝置上完全沒反應。
  * 拖曳把手上要設 touch-action: none，否則手指一動瀏覽器會先去捲頁面。
  */
-export function ProjectMembers({ group, project, onToggle, onReorder }) {
-  const byId = Object.fromEntries(group.members.map((m) => [m.id, m]));
-  const joined = project.memberIds.map((id) => byId[id]).filter((m) => m && !m.deleted);
-  const others = group.members.filter((m) => !m.deleted && !project.memberIds.includes(m.id));
+export function ProjectMembers({ group, users, project, onToggle, onReorder }) {
+  const joined = project.memberIds.map((id) => users[id]).filter(Boolean);
+  // 群組裡還沒加進這個專案的人；停用中的不列出來
+  const others = group.memberIds
+    .filter((id) => !project.memberIds.includes(id))
+    .map((id) => users[id])
+    .filter((u) => isPickable(u, group));
 
   const listRef = useRef(null);
   const geomRef = useRef(null);

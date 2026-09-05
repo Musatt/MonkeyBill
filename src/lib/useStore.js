@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from "react";
 import { supabaseGet, supabaseSet } from "./supabase.js";
-import { diffData, applyDiff, isEmptyDiff, emptyData, pruneOrphans } from "./merge.js";
-import { buildSeedData } from "./seed.js";
+import { diffData, applyDiff, isEmptyDiff, emptyData } from "./merge.js";
+import { migrate } from "./schema.js";
 import { POLL_INTERVAL_MS } from "../constants.js";
 
 /**
@@ -37,21 +37,9 @@ export function useStore() {
       try {
         const remote = await supabaseGet(); // 失敗會 throw，不會被誤判成空資料庫
         if (cancelled) return;
-        if (remote && remote.groups && Object.keys(remote.groups).length > 0) {
-          setBoth(pruneOrphans(remote));
-        } else if (remote === null) {
-          // 讀取成功、資料列確實不存在 → 這才是真正的全新資料庫
-          const seeded = buildSeedData();
-          try {
-            await supabaseSet(seeded);
-          } catch {
-            // 種子寫入失敗就先用記憶體版本，下次編輯時 persist 會再嘗試寫入
-          }
-          if (!cancelled) setBoth(seeded);
-        } else {
-          // 資料列存在但內容是空的 → 尊重它，顯示空畫面，不要蓋任何東西
-          setBoth(pruneOrphans({ ...emptyData(), ...remote }));
-        }
+        // 走到這裡代表讀取成功（失敗會 throw）。所以「空的」就是真的空的，
+        // 直接顯示空畫面讓使用者自己建身分與群組，不寫入任何範例資料。
+        setBoth(remote && remote.groups ? migrate(remote) : emptyData());
       } catch (e) {
         if (!cancelled) setErr(e.message || String(e));
       } finally {
@@ -71,7 +59,7 @@ export function useStore() {
     setSaveState({ status: "saving", error: null, pending: batchSize });
     try {
       const remote = await supabaseGet();
-      let merged = remote && remote.groups ? pruneOrphans(remote) : emptyData();
+      let merged = remote && remote.groups ? migrate(remote) : emptyData();
       for (const job of batch) {
         merged = job.replace ? job.data : applyDiff(merged, job.diff);
       }
@@ -129,7 +117,7 @@ export function useStore() {
     try {
       const fresh = await supabaseGet();
       if (fresh && fresh.groups && pendingRef.current.length === 0) {
-        setBoth(pruneOrphans(fresh));
+        setBoth(migrate(fresh));
       }
     } catch {
       // 背景同步失敗就繼續顯示現有資料，不打斷操作

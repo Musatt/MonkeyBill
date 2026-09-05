@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { todayStr, nowHHMM } from "../lib/format.js";
+import { isPickable } from "../lib/permissions.js";
+import { memberIdsUsedByExpense } from "../lib/schema.js";
 import { AddExpenseForm } from "./AddExpenseForm.jsx";
 import { ExpenseList } from "./ExpenseList.jsx";
 import { SettlementPage } from "./SettlementPage.jsx";
@@ -17,9 +19,10 @@ export function ProjectView({
   group,
   project,
   expenses,
+  users,
   membersById,
   myId,
-  onSwitchIdentity,
+  perms,
   onBack,
   tab,
   onTabChange,
@@ -89,6 +92,15 @@ export function ProjectView({
     }
   }
 
+  // 表單的選人名單：目前可選的人，加上這筆項目原本就用到的人
+  // （編輯舊紀錄時，就算某人已被停用也要留著，否則一存檔就把他弄丟）
+  const formMemberIds = (() => {
+    const base = project.memberIds.filter((id) => isPickable(users[id], group));
+    const item = editorProps && editorProps.initialValues ? memberIdsUsedByExpense(editorProps.initialValues) : [];
+    const extra = item.filter((id) => project.memberIds.includes(id) && !base.includes(id));
+    return project.memberIds.filter((id) => base.includes(id) || extra.includes(id));
+  })();
+
   return (
     <div>
       <div className="topbar">
@@ -96,10 +108,7 @@ export function ProjectView({
         <div className="topbar-text">
           <div className="topbar-title">{project.name}</div>
           {project.description && <div className="topbar-sub">{project.description}</div>}
-          <div className="topbar-sub">
-            {group.name} · 你是 {membersById[myId]?.name || "?"} ·{" "}
-            <button className="link-btn" onClick={onSwitchIdentity}>切換身分</button>
-          </div>
+          <div className="topbar-sub">{group.name} · 你是 {membersById[myId]?.name || "?"}</div>
         </div>
       </div>
       {!editor && (
@@ -121,7 +130,8 @@ export function ProjectView({
         ) : (
           <AddExpenseForm
             project={project}
-            allMembers={group.members}
+            allMembers={users}
+            memberIds={formMemberIds}
             isEdit={editorProps.isEdit}
             initialValues={editorProps.initialValues}
             onSave={(exp) => {
@@ -149,6 +159,7 @@ export function ProjectView({
               onAdd={() => onOpenEditor("new")}
               onEdit={(id) => onOpenEditor("edit", id)}
               onDuplicate={(id) => onOpenEditor("copy", id)}
+              canDelete={perms.canDeleteExpenseById}
               onDelete={actions.deleteExpense}
             />
           )}
@@ -166,6 +177,7 @@ export function ProjectView({
           {tab === "members" && (
             <ProjectMembers
               group={group}
+              users={users}
               project={project}
               onToggle={actions.toggleProjectMember}
               onReorder={actions.setProjectMemberOrder}

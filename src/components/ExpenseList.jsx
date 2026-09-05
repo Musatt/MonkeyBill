@@ -47,7 +47,7 @@ export function exportCSV(project, expenses, membersById) {
   }
 }
 
-export function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdit, onDelete, onDuplicate }) {
+export function ExpenseList({ project, expenses, membersById, myId, canDelete, onAdd, onEdit, onDelete, onDuplicate }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [search, setSearch] = useState("");
   const [typeFilterSet, setTypeFilterSet] = useState(() => new Set()); // 空的代表全部
@@ -99,8 +99,9 @@ export function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdi
     .filter((e) => (e.itemType || "expense") === "expense")
     .reduce((s, e) => s + e.baseAmount, 0);
 
-  const actionRow = (id) =>
-    confirmDeleteId === id ? (
+  const actionRow = (id) => {
+    const allowed = canDelete(id);
+    return confirmDeleteId === id ? (
       <div className="receipt-actions">
         <button className="del-btn" onClick={() => setConfirmDeleteId(null)}>取消</button>
         <button
@@ -117,9 +118,14 @@ export function ExpenseList({ project, expenses, membersById, myId, onAdd, onEdi
       <div className="receipt-actions">
         <button className="del-btn" onClick={() => onDuplicate(id)}>複製</button>
         <button className="del-btn" onClick={() => onEdit(id)}>編輯</button>
-        <button className="del-btn del-btn-danger" onClick={() => setConfirmDeleteId(id)}>刪除</button>
+        {allowed.ok ? (
+          <button className="del-btn del-btn-danger" onClick={() => setConfirmDeleteId(id)}>刪除</button>
+        ) : (
+          <span className="del-btn del-btn-muted" title={allowed.reason}>刪除</span>
+        )}
       </div>
     );
+  };
 
   const typeFilters = [
     ["expense", "支出"],

@@ -3,8 +3,8 @@ import { CATEGORIES } from "../constants.js";
 import { todayStr, nowHHMM, formatMoney, formatTimestamp, projectDecimals, uid } from "../lib/format.js";
 import { DatePickerBox, CurrencySelect } from "./primitives.jsx";
 
-export function AddExpenseForm({ project, allMembers, initialValues, isEdit, onSave, onCancel }) {
-  const projectMembers = project.memberIds.map((id) => allMembers.find((m) => m.id === id)).filter(Boolean);
+export function AddExpenseForm({ project, allMembers, memberIds, initialValues, isEdit, onSave, onCancel }) {
+  const projectMembers = memberIds.map((id) => allMembers[id]).filter(Boolean);
   const decimals = projectDecimals(project);
 
   const [itemType, setItemType] = useState(initialValues?.itemType || "expense");
@@ -194,9 +194,7 @@ export function AddExpenseForm({ project, allMembers, initialValues, isEdit, onS
   const invalidReason = validationMessage();
 
   // 「最後編輯」只在這裡顯示。列表上每筆都掛一個名字會讓畫面上的人名太多。
-  const lastEditedName = isEdit && initialValues?.lastEditedBy
-    ? allMembers.find((m) => m.id === initialValues.lastEditedBy)?.name || "?"
-    : null;
+  const lastEditedName = isEdit && initialValues?.lastEditedBy ? allMembers[initialValues.lastEditedBy]?.name || "?" : null;
   const lastEditedAt = isEdit ? formatTimestamp(initialValues?.lastEditedAt) : "";
 
   return (

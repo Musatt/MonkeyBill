@@ -1,24 +1,27 @@
 import React, { useState } from "react";
-import { todayStr, findMemberByName } from "../lib/format.js";
+import { todayStr } from "../lib/format.js";
 import { isProjectSettled } from "../lib/money.js";
+import { isPickable } from "../lib/permissions.js";
 import { DatePickerBox, CurrencySelect } from "./primitives.jsx";
 
 export function GroupPage({
   group,
+  users,
   projects,
   expenses,
   myId,
+  isAdmin,
   onBack,
   onOpenProject,
   onCreateProject,
-  onAddMember,
-  onReviveMember,
   onOpenMember,
   onOpenSettings,
+  onOpenMembers,
   onShare,
-  onSwitchIdentity,
 }) {
-  const activeMembers = group.members.filter((m) => !m.deleted);
+  const admins = new Set(group.adminIds || []);
+  const activeMembers = group.memberIds.map((id) => users[id]).filter((u) => isPickable(u, group));
+
   const [showNew, setShowNew] = useState(false);
   const [pname, setPname] = useState("");
   const [pdesc, setPdesc] = useState("");
@@ -26,54 +29,37 @@ export function GroupPage({
   const [selected, setSelected] = useState(() => new Set(activeMembers.map((m) => m.id)));
   const [currency, setCurrency] = useState("TWD");
   const [settlementDecimals, setSettlementDecimals] = useState(0);
-  const [showAddMember, setShowAddMember] = useState(false);
-  const [newMemberName, setNewMemberName] = useState("");
 
-  const toggle = (id) => {
+  const toggle = (id) =>
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
-  };
-
-  const me = group.members.find((m) => m.id === myId);
-  const newTrimmed = newMemberName.trim();
-  const newMatch = newTrimmed ? findMemberByName(group.members, newTrimmed) : null;
-  const newClashesActive = newMatch && !newMatch.deleted;
-  const newCanRevive = newMatch && newMatch.deleted;
 
   const sortedProjects = [...projects].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
-
-  const closeAddMember = () => {
-    setNewMemberName("");
-    setShowAddMember(false);
-  };
 
   return (
     <div className="screen">
       <div className="topbar">
         <button className="backbtn" onClick={onBack} aria-label="返回">‹</button>
         <div className="topbar-text">
-          <div className="topbar-title">
-            {group.name}
-            {group.password && " 🔒"}
-          </div>
+          <div className="topbar-title">{group.name}</div>
           {group.description && <div className="topbar-sub">{group.description}</div>}
-          {me && (
-            <div className="topbar-sub">
-              你是 {me.name} · <button className="link-btn" onClick={onSwitchIdentity}>切換身分</button>
-            </div>
-          )}
+          <div className="topbar-sub">
+            你是 {users[myId]?.name || "?"}
+            {isAdmin && <span className="admin-tag">管理者</span>}
+          </div>
         </div>
       </div>
       <div className="topbar-actions">
         <button className="edit-icon-btn" onClick={onShare}>🔗 分享</button>
-        <button className="edit-icon-btn" onClick={onOpenSettings}>編輯</button>
+        {isAdmin && <button className="edit-icon-btn" onClick={onOpenMembers}>管理成員</button>}
+        {isAdmin && <button className="edit-icon-btn" onClick={onOpenSettings}>編輯</button>}
       </div>
 
-      <div className="section-label">成員 ({activeMembers.length})</div>
+      <div className="section-label">成員（{activeMembers.length}）</div>
       <div className="member-chip-row">
         {activeMembers.map((m) => (
           <button
@@ -82,62 +68,18 @@ export function GroupPage({
             onClick={() => onOpenMember(m.id)}
           >
             {m.name}
+            {admins.has(m.id) && <span className="admin-dot" title="管理者">•</span>}
           </button>
         ))}
-        {!showAddMember && (
-          <button className="member-tag member-tag-add" onClick={() => setShowAddMember(true)} aria-label="新增成員">
-            ＋
-          </button>
-        )}
       </div>
-      {showAddMember && (
-        <div style={{ marginTop: 8 }}>
-          <div className="row-form">
-            <input
-              className="input"
-              placeholder="新成員名字"
-              value={newMemberName}
-              onChange={(e) => setNewMemberName(e.target.value)}
-              autoFocus
-            />
-            <button
-              className="btn-accent"
-              disabled={!newTrimmed || !!newMatch}
-              onClick={() => {
-                onAddMember(newTrimmed);
-                closeAddMember();
-              }}
-            >
-              新增
-            </button>
-          </div>
-          {newClashesActive && <div className="hint-text hint-warn">名單上已經有「{newTrimmed}」了。</div>}
-          {newCanRevive && (
-            <div className="card subtle" style={{ marginTop: 8 }}>
-              <div className="hint-text">
-                「{newTrimmed}」之前被刪除過。復原之後他過去的紀錄會重新接回同一個人。
-              </div>
-              <button
-                className="btn-accent full-width"
-                style={{ marginTop: 10 }}
-                onClick={() => {
-                  onReviveMember(newMatch.id);
-                  closeAddMember();
-                }}
-              >
-                復原「{newTrimmed}」
-              </button>
-            </div>
-          )}
-          <button className="link-btn" style={{ marginTop: 8 }} onClick={closeAddMember}>取消</button>
-        </div>
-      )}
+      {!isAdmin && <div className="hint-text">要增減成員請找群組管理者。</div>}
 
       <div className="section-label" style={{ marginTop: 20 }}>專案</div>
       <div className="list-stack">
         {sortedProjects.map((p) => {
           const projectExpenses = expenses.filter((e) => e.projectId === p.id);
           const settled = isProjectSettled(p, projectExpenses);
+          const inProject = p.memberIds.includes(myId);
           return (
             <button key={p.id} className="project-card" onClick={() => onOpenProject(p.id)}>
               <div className="project-card-top">
@@ -147,6 +89,7 @@ export function GroupPage({
               {p.description && <div className="card-desc">{p.description}</div>}
               <div className="project-card-meta">
                 {p.date || "—"} · {p.memberIds.length} 人 · {projectExpenses.length} 筆 · 主幣別 {p.baseCurrency}
+                {!inProject && <span className="hint-text"> · 你不在這個專案</span>}
               </div>
             </button>
           );
@@ -173,7 +116,7 @@ export function GroupPage({
           <textarea className="input textarea" value={pdesc} onChange={(e) => setPdesc(e.target.value)} placeholder="這個專案是做什麼用的" />
           <div className="section-label" style={{ marginTop: 12 }}>專案日期</div>
           <DatePickerBox value={pdate} onChange={setPdate} />
-          <div className="section-label" style={{ marginTop: 12 }}>參加成員 ({selected.size})</div>
+          <div className="section-label" style={{ marginTop: 12 }}>參加成員（{selected.size}）</div>
           <div className="member-chip-row">
             {activeMembers.map((m) => (
               <button

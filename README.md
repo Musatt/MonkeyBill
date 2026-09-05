@@ -59,27 +59,42 @@ src/
   components/           各畫面
 ```
 
-## 資料模型
+## 資料模型（v2）
 
-雲端只有一張表 `app_data`，整個 App 的資料是 `id = 'main'` 那一列的 `data` JSON：
+雲端只有一張表 `app_data`，整個 App 的資料是 `id = 'main'` 那一列的 `data` JSON。
+`schemaVersion` 標記格式版本，載入時由 `lib/schema.js` 的 `migrate()` 自動升級。
 
-```sql
-create table app_data (
-  id text primary key,
-  data jsonb not null,
-  updated_at timestamptz default now()
-);
-```
+- `users`：全域帳號。`{ id, name(暱稱＝帳號，唯一), passwordHash(SHA-256 或 null), phone, bankCode, bankAccount, otherPayment, disabled }`
+- `groups`：`{ id, name, description, memberIds[], adminIds[], inactiveMemberIds[] }`
+- `projects`：`{ id, groupId, name, description, date, memberIds[], baseCurrency, settlementDecimals, settlementMode, collectorId, createdBy }`
+- `expenses`（三種 `itemType`）：欄位同前，另有 `createdBy`（決定誰能刪這筆）
 
-- `groups`：`{ id, name, description, password, members: [{id, name, phone, bankCode, bankAccount, otherPayment, deleted}] }`
-- `projects`：`{ id, groupId, name, description, date, memberIds, baseCurrency, settlementDecimals, settlementMode, collectorId }`
-- `expenses`（其實是「項目」，三種 `itemType`）：
-  - `expense` 支出：`payers: [{memberId, amount}]`, `splitType`(equal/ratio/custom), `splitMemberIds`, `splitWeights`, `splitAmounts`
-  - `collection` 收入：欄位同上，語意相反（payers 是收款人）
-  - `transfer` 轉帳：`fromMemberId`, `toMemberId`（不分攤）
-  - 共同欄位：`category, note, amount, currency, exchangeRate, baseAmount, date, time, lastEditedBy, lastEditedAt`
+### 停用有兩層
 
-成員是**軟刪除**（`deleted: true`）：從名單消失但歷史紀錄完整保留，之後用同樣的名字可以復原成同一個人。
+- **全域停用**（後臺管理）：不能登入，不出現在任何選單
+- **群組內停用**（群組管理者）：只在該群組消失
+
+兩者都只影響「選人清單」。**歷史紀錄與結算餘額一律照算**，被停用的人仍會出現在結算頁。
+這是刻意的：把人從 `memberIds` 拿掉會讓帳算不平。
+
+### 權限
+
+| | 一般成員 | 群組管理者 | 後臺管理 |
+|---|---|---|---|
+| 新增／編輯項目 | ✔ | ✔ | ✔ |
+| 刪除項目 | 只有自己建的 | 任何一筆 | 任何一筆 |
+| 建立專案、改專案設定 | ✔ | ✔ | ✔ |
+| 刪除專案／群組 | ✘ | ✔ | ✔ |
+| 管理成員與管理者 | ✘ | ✔ | ✔ |
+| 停用／刪除帳號 | ✘ | ✘ | ✔ |
+
+沒有 `createdBy` 的舊項目（遷移時用 `lastEditedBy` 補，補不到就是 null）只有管理者能刪。
+
+### 登入
+
+暱稱就是帳號，密碼可留空。密碼存 SHA-256 雜湊而不是明文——資料庫是公開可讀的。
+但驗證在瀏覽器端，**擋的是手滑點到別人的身分，不是真正的存取控制**。
+登入畫面輸入保留字「後臺管理」＋通用密碼進入後臺。
 
 ## 幾個刻意的設計
 

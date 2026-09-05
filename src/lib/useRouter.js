@@ -23,20 +23,20 @@ export function parseHash(hash) {
     screen: "home",
     groupId: null,
     projectId: null,
-    memberId: null,
+    userId: null,
     tab: "expenses",
     editor: null,
     settings: false,
+    members: false,
   };
+  if (parts[0] === "u" && parts[1]) return { ...home, screen: "user", userId: parts[1] };
   if (parts.length === 0 || parts[0] !== "g" || !parts[1]) return home;
 
   const groupId = parts[1];
   if (parts.length === 2) return { ...home, screen: "group", groupId };
 
   if (parts[2] === "settings") return { ...home, screen: "group", groupId, settings: true };
-  if (parts[2] === "m" && parts[3]) {
-    return { ...home, screen: "member", groupId, memberId: parts[3] };
-  }
+  if (parts[2] === "members") return { ...home, screen: "group", groupId, members: true };
   if (parts[2] === "p" && parts[3]) {
     const projectId = parts[3];
     const base = { ...home, screen: "project", groupId, projectId };
@@ -53,11 +53,14 @@ export function parseHash(hash) {
 
 export function buildHash(route) {
   const enc = encodeURIComponent;
+  if (route && route.screen === "user" && route.userId) return `#/u/${enc(route.userId)}`;
   if (!route || route.screen === "home" || !route.groupId) return "#/";
   if (route.screen === "group") {
-    return route.settings ? `#/g/${enc(route.groupId)}/settings` : `#/g/${enc(route.groupId)}`;
+    if (route.settings) return `#/g/${enc(route.groupId)}/settings`;
+    if (route.members) return `#/g/${enc(route.groupId)}/members`;
+    return `#/g/${enc(route.groupId)}`;
   }
-  if (route.screen === "member") return `#/g/${enc(route.groupId)}/m/${enc(route.memberId)}`;
+
   if (route.screen === "project") {
     const base = `#/g/${enc(route.groupId)}/p/${enc(route.projectId)}`;
     if (route.settings) return `${base}/settings`;
@@ -75,10 +78,11 @@ export function buildHash(route) {
  * 上一階看的是畫面的層級（項目 → 專案 → 群組 → 首頁），永遠可預期。
  */
 export function parentOf(route) {
-  if (!route || route.screen === "home" || !route.groupId) return null;
+  if (!route || route.screen === "home") return null;
+  if (route.screen === "user") return { screen: "home" };
+  if (!route.groupId) return null;
   const { groupId, projectId } = route;
-  if (route.screen === "group") return route.settings ? { screen: "group", groupId } : { screen: "home" };
-  if (route.screen === "member") return { screen: "group", groupId };
+  if (route.screen === "group") return route.settings || route.members ? { screen: "group", groupId } : { screen: "home" };
   if (route.screen === "project") {
     if (route.settings || route.editor) return { screen: "project", groupId, projectId, tab: route.tab };
     return { screen: "group", groupId };

@@ -1,10 +1,10 @@
 /* 逐筆合併：兩個人同時記帳時，只覆寫自己動過的那幾筆，不整包蓋掉對方的紀錄。 */
 
-const KINDS = ["groups", "projects", "expenses"];
+import { SCHEMA_VERSION, emptyData, pruneOrphans } from "./schema.js";
 
-export function emptyData() {
-  return { groups: {}, projects: {}, expenses: {} };
-}
+const KINDS = ["users", "groups", "projects", "expenses"];
+
+export { emptyData, pruneOrphans };
 
 /** 比較編輯前後，算出「我動了哪些東西」。 */
 export function diffData(prev, next) {
@@ -35,22 +35,6 @@ export function applyDiff(base, diff) {
     Object.assign(m, diff.upsert[kind]);
     out[kind] = m;
   }
+  out.schemaVersion = SCHEMA_VERSION;
   return pruneOrphans(out);
-}
-
-/**
- * 清掉孤兒資料：群組被刪掉之後，別台裝置可能剛好又新增了底下的專案/項目，
- * 合併完會留下沒有歸屬的資料，這裡一併清掉。
- */
-export function pruneOrphans(data) {
-  const groups = data.groups || {};
-  const projects = {};
-  Object.entries(data.projects || {}).forEach(([id, p]) => {
-    if (groups[p.groupId]) projects[id] = p;
-  });
-  const expenses = {};
-  Object.entries(data.expenses || {}).forEach(([id, e]) => {
-    if (projects[e.projectId]) expenses[id] = e;
-  });
-  return { groups, projects, expenses };
 }

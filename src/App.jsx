@@ -244,8 +244,10 @@ export default function App() {
           memberIds,
           baseCurrency,
           settlementDecimals,
-          settlementMode: "min",
-          collectorId: memberIds[0] || null,
+          // 預設「指定一人全收發」：大家只跟一個窗口轉帳，比互相配對好執行。
+          // collectorId 留 null，結算頁會自動挑代墊最多的人，之後可以手動改。
+          settlementMode: "one",
+          collectorId: null,
           createdBy: myId,
           createdAt: Date.now(),
         },

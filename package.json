@@ -7,7 +7,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "test": "eslint src && node src/lib/money.test.mjs && node src/lib/schema.test.mjs",
+    "test": "eslint src && node src/lib/money.test.mjs && node src/lib/schema.test.mjs && node src/lib/calc.test.mjs",
     "lint": "eslint src"
   },
   "dependencies": {

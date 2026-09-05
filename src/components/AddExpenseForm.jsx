@@ -1,6 +1,7 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useLayoutEffect } from "react";
 import { CATEGORIES } from "../constants.js";
 import { todayStr, nowHHMM, formatMoney, formatTimestamp, projectDecimals, uid } from "../lib/format.js";
+import { evalAmount, isExpression, groupDigits } from "../lib/calc.js";
 import { DatePickerBox, CurrencySelect } from "./primitives.jsx";
 
 export function AddExpenseForm({ project, allMembers, memberIds, initialValues, isEdit, onSave, onCancel }) {
@@ -10,7 +11,8 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
   const [itemType, setItemType] = useState(initialValues?.itemType || "expense");
   const [category, setCategory] = useState(initialValues?.category || "food");
   const [note, setNote] = useState(initialValues?.note || "");
-  const [amount, setAmount] = useState(initialValues ? String(initialValues.amount) : "");
+  // 開編輯時也要補逗號，不然一進來是 1200、動一個字才變成 1,200
+  const [amount, setAmount] = useState(initialValues ? groupDigits(String(initialValues.amount)) : "");
   const [currency, setCurrency] = useState(initialValues?.currency || project.baseCurrency);
   const [rateMode, setRateMode] = useState("rate"); // 'rate' | 'converted'
   const [rate, setRate] = useState(initialValues ? String(initialValues.exchangeRate || 1) : "1");
@@ -54,13 +56,69 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
   const [toId, setToId] = useState(initialValues?.toMemberId || projectMembers[1]?.id || projectMembers[0]?.id || "");
   const [confirmingSave, setConfirmingSave] = useState(false);
 
+  // ── 金額欄位：千分位 + 直接算式 ──────────────────────────────
+  // 加逗號會改變字串長度，游標會被系統丟到最後面，所以自己算游標該落在哪。
+  const amountRef = useRef(null);
+  const caretRef = useRef(null);
+  useLayoutEffect(() => {
+    if (caretRef.current !== null && amountRef.current) {
+      amountRef.current.setSelectionRange(caretRef.current, caretRef.current);
+      caretRef.current = null;
+    }
+  });
+
+  /** 寫入金額並補逗號；caretPos 是「還沒補逗號前」的游標位置。 */
+  const applyAmount = (rawValue, caretPos) => {
+    const stripped = rawValue.replace(/,/g, "");
+    // 游標前面有幾個非逗號字元，補完逗號後就把游標放回第幾個非逗號字元之後
+    const keep = rawValue.slice(0, caretPos).replace(/,/g, "").length;
+    const formatted = groupDigits(stripped);
+    let seen = 0;
+    let i = 0;
+    while (i < formatted.length && seen < keep) {
+      if (formatted[i] !== ",") seen++;
+      i++;
+    }
+    caretRef.current = i;
+    setAmount(formatted);
+  };
+
+  const onAmountChange = (e) => {
+    applyAmount(e.target.value, e.target.selectionStart ?? e.target.value.length);
+  };
+
+  /** 運算符按鍵：插在游標處，不是永遠接在最後面 */
+  const insertOp = (op) => {
+    const el = amountRef.current;
+    const start = el ? el.selectionStart : amount.length;
+    const end = el ? el.selectionEnd : amount.length;
+    applyAmount(amount.slice(0, start) + op + amount.slice(end), start + op.length);
+    if (el) el.focus();
+  };
+
+  const backspace = () => {
+    const el = amountRef.current;
+    let start = el ? el.selectionStart : amount.length;
+    const end = el ? el.selectionEnd : amount.length;
+    if (start === end && start > 0) {
+      start -= 1;
+      // 逗號是自動補的，退格要跳過它，不然按了像沒反應
+      if (amount[start] === "," && start > 0) start -= 1;
+    }
+    applyAmount(amount.slice(0, start) + amount.slice(end), start);
+    if (el) el.focus();
+  };
+
+  const amountIsExpr = isExpression(amount);
+  const amountResult = evalAmount(amount);
+
   const payerLabel = itemType === "collection" ? "收款人" : "付款人";
   const payerModeLabels = itemType === "collection" ? ["單一收款人", "多人共同收款"] : ["單一付款人", "多人共同支出"];
   const splitLabel = itemType === "collection" ? "收款方式（誰收多少）" : "分帳方式";
   const splitMemberLabel = itemType === "collection" ? "收款對象" : "分攤成員";
 
   const needsConversion = currency !== project.baseCurrency;
-  const amountNum = parseFloat(amount) || 0;
+  const amountNum = evalAmount(amount) || 0;
 
   let baseAmount = amountNum;
   let effectiveRate = 1;
@@ -221,22 +279,56 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
         {itemType === "transfer" && "純粹某人拿錢給某人，不分攤。"}
       </div>
 
-      {/* 金額是這張表單的主角，做大 */}
-      <div className="amount-box">
-        <div className="amount-row">
+      {/* 金額是這張表單的主角，做大；幣別另外一格，不要擠在同一個框裡 */}
+      <div className="amount-line">
+        <div className="amount-box">
           <input
+            ref={amountRef}
             className="amount-input mono"
             inputMode="decimal"
             value={amount}
-            onChange={(e) => setAmount(e.target.value)}
+            onChange={onAmountChange}
             placeholder="0"
             aria-label="金額"
           />
-          <div className="amount-cur">
-            <CurrencySelect value={currency} onChange={setCurrency} />
+          {/* 帳單常常好幾個細項，直接在這欄算完就不用跳出去開計算機 */}
+          <div className="calc-keys">
+            {["+", "-", "×", "÷", "(", ")"].map((op) => (
+              <button
+                key={op}
+                className="calc-key"
+                onMouseDown={(e) => e.preventDefault()}
+                onClick={() => insertOp(op)}
+                tabIndex={-1}
+              >
+                {op}
+              </button>
+            ))}
+            <button
+              className="calc-key calc-key-del"
+              onMouseDown={(e) => e.preventDefault()}
+              onClick={backspace}
+              tabIndex={-1}
+              aria-label="刪除一個字元"
+            >
+              ⌫
+            </button>
           </div>
+          {amountIsExpr && (
+            <div className={"calc-result mono" + (amountResult === null ? " calc-result-wait" : "")}>
+              {amountResult === null
+                ? "算式還沒寫完"
+                : `= ${formatMoney(amountResult, currency, decimals)}`}
+            </div>
+          )}
         </div>
-        {needsConversion && (
+        <div className="cur-box">
+          <div className="cur-box-label">幣別</div>
+          <CurrencySelect value={currency} onChange={setCurrency} />
+        </div>
+      </div>
+
+      {needsConversion && (
           <div className="amount-fx">
             <div className="mode-switch">
               <button className={rateMode === "rate" ? "on" : ""} onClick={() => setRateMode("rate")}>填匯率</button>
@@ -255,9 +347,8 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
                 <div className="form-hint mono">匯率 ≈ {effectiveRate.toFixed(4)}</div>
               </>
             )}
-          </div>
-        )}
-      </div>
+        </div>
+      )}
 
       <label className="form-label">項目說明{itemType === "transfer" ? "（選填）" : ""}</label>
       <input
@@ -454,23 +545,32 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
       </div>
 
       <div className="form-actions">
-        {!canSubmit && !confirmingSave && invalidReason && (
+        {!canSubmit && invalidReason && (
           <div className="form-hint hint-warn" style={{ textAlign: "center", marginBottom: 8 }}>{invalidReason}</div>
         )}
-        {isEdit && confirmingSave ? (
-          <div className="row-form">
-            <button className="btn-ghost" onClick={() => setConfirmingSave(false)}>取消</button>
-            <button className="btn-accent" onClick={submit}>確定儲存修改</button>
-          </div>
-        ) : (
-          <div className="row-form">
-            <button className="btn-ghost" onClick={onCancel}>取消</button>
-            <button className="btn-accent" disabled={!canSubmit} onClick={() => (isEdit ? setConfirmingSave(true) : submit())}>
-              {isEdit ? "儲存修改" : "新增項目"}
-            </button>
-          </div>
-        )}
+        <div className="row-form">
+          <button className="btn-ghost" onClick={onCancel}>取消</button>
+          <button className="btn-accent" disabled={!canSubmit} onClick={() => (isEdit ? setConfirmingSave(true) : submit())}>
+            {isEdit ? "儲存修改" : "新增項目"}
+          </button>
+        </div>
       </div>
+
+      {/* 改別人的帳要再確認一次。用彈出視窗，不要讓同一顆按鈕按兩次意思不一樣。 */}
+      {confirmingSave && (
+        <div className="modal-backdrop" onClick={() => setConfirmingSave(false)} role="dialog" aria-modal="true">
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="onboard-eyebrow">確認修改</div>
+            <div className="modal-title">{note.trim() || (itemType === "transfer" ? "內部轉帳" : "這筆項目")}</div>
+            <div className="modal-amount mono">{formatMoney(baseAmount, project.baseCurrency, decimals)}</div>
+            <div className="hint-text">存檔後所有人看到的都是新的內容，餘額與結算會跟著重算。</div>
+            <div className="row-form" style={{ marginTop: 12 }}>
+              <button className="btn-ghost" onClick={() => setConfirmingSave(false)}>再改一下</button>
+              <button className="btn-accent" onClick={submit}>確定儲存</button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

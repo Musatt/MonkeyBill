@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { formatMoney, formatSigned, projectDecimals } from "../lib/format.js";
-import { computeBalances, reconcileBalances, simplifyDebts, oneCollectorSettlement } from "../lib/money.js";
+import { computeBalances, reconcileBalances, simplifyDebts, oneCollectorSettlement, biggestPrepayer } from "../lib/money.js";
 
 /** 一列建議轉帳：誰 → 誰 多少，右邊是付款鍵 */
 function TxnRow({ txn, membersById, currency, decimals, myId, onPay }) {
@@ -35,12 +35,20 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
   const [showSettings, setShowSettings] = useState(false);
   const [showAll, setShowAll] = useState(false);
 
+  // 沒指定收發款人就自動用代墊最多的人，不要因為沒設定就退回「最少轉帳次數」
+  const autoCollectorId = useMemo(
+    () => biggestPrepayer(project.memberIds, expenses),
+    [project.memberIds, expenses]
+  );
+  const oneMode = project.settlementMode === "one";
+  const collectorId = project.collectorId || autoCollectorId;
+
   const txns = useMemo(() => {
-    if (project.settlementMode === "one" && project.collectorId) {
-      return oneCollectorSettlement(reconciled, project.collectorId, decimals);
+    if (oneMode && collectorId) {
+      return oneCollectorSettlement(reconciled, collectorId, decimals);
     }
     return simplifyDebts(reconciled, decimals);
-  }, [reconciled, project.settlementMode, project.collectorId, decimals]);
+  }, [reconciled, oneMode, collectorId, decimals]);
 
   // 先照收款人分組（收得多的在前），組內再依金額大→小
   const sortedTxns = useMemo(() => {
@@ -94,7 +102,57 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
 
   return (
     <div className="stats">
-      {/* 先講「你」的部分——大家打開這頁就是要看自己要付多少給誰 */}
+      {/*
+        結算方式擺最上面：底下每一筆建議轉帳都是這個設定算出來的，
+        看到不對的名單時，第一件事就是回來改這裡。平常收合成一行。
+      */}
+      <div className="settle-mode">
+        <button className="settle-mode-head" onClick={() => setShowSettings((v) => !v)} aria-expanded={showSettings}>
+          <span className="settle-mode-label">結算方式</span>
+          <span className="settle-mode-value">
+            {oneMode ? `${membersById[collectorId]?.name || "?"} 全收發` : "最少轉帳次數"}
+          </span>
+          <span className={"caret" + (showSettings ? " caret-open" : "")}>›</span>
+        </button>
+        {showSettings && (
+          <div className="settle-mode-body">
+            <div className="seg">
+              <button className={oneMode ? "on" : ""} onClick={() => onModeChange("one", collectorId)}>
+                指定一人全收發
+              </button>
+              <button className={!oneMode ? "on" : ""} onClick={() => onModeChange("min", project.collectorId)}>
+                最少轉帳次數
+              </button>
+            </div>
+            {oneMode && (
+              <>
+                <div className="settle-mode-sub">收發款人</div>
+                <div className="pick-row">
+                  {project.memberIds.map((id) => (
+                    <button
+                      key={id}
+                      className={"pick" + (id === collectorId ? " on" : "")}
+                      onClick={() => onModeChange("one", id)}
+                    >
+                      {membersById[id]?.name || "?"}
+                      {id === autoCollectorId && <span className="pick-note">墊最多</span>}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            <div className="hint-text">
+              {oneMode
+                ? "所有人先跟他結清，再由他付給該收錢的人。"
+                : "自動配對，讓總轉帳次數最少。"}
+              <br />
+              每人金額無條件進位至{decimals === 0 ? "整數" : `小數 ${decimals} 位`}，最大收款人吸收尾差，確保總和為 0。
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* 再講「你」的部分——大家打開這頁就是要看自己要付多少給誰 */}
       {allSettled ? (
         <div className="settle-hero settle-hero-done">
           <div className="settle-hero-label">全部結清</div>
@@ -176,51 +234,6 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
           </div>
         ))}
       </div>
-
-      {/* 結算方式是設定，不是每次都要看的東西，收在最後 */}
-      <button className="stat-head stat-head-btn" onClick={() => setShowSettings((v) => !v)} aria-expanded={showSettings}>
-        結算方式：{project.settlementMode === "one" ? "指定一人全收發" : "最少轉帳次數"}
-        <span className={"caret" + (showSettings ? " caret-open" : "")}>›</span>
-      </button>
-      {showSettings && (
-        <div className="card subtle">
-          <div className="mode-switch">
-            <button
-              className={project.settlementMode !== "one" ? "on" : ""}
-              onClick={() => onModeChange("min", project.collectorId)}
-            >
-              最少轉帳次數
-            </button>
-            <button
-              className={project.settlementMode === "one" ? "on" : ""}
-              onClick={() => onModeChange("one", project.collectorId || project.memberIds[0])}
-            >
-              指定一人全收發
-            </button>
-          </div>
-          {project.settlementMode === "one" && (
-            <div className="picker-row">
-              <span className="picker-row-label">收發款人</span>
-              <select
-                className="input picker-row-select"
-                value={project.collectorId || ""}
-                onChange={(e) => onModeChange("one", e.target.value)}
-              >
-                {project.memberIds.map((id) => (
-                  <option key={id} value={id}>{membersById[id]?.name || "?"}</option>
-                ))}
-              </select>
-            </div>
-          )}
-          <div className="hint-text">
-            {project.settlementMode === "one"
-              ? "所有人先跟他結清，再由他付給該收錢的人。"
-              : "自動配對，讓總轉帳次數最少。"}
-            <br />
-            每人金額無條件進位至{decimals === 0 ? "整數" : `小數 ${decimals} 位`}，最大收款人吸收尾差，確保總和為 0。
-          </div>
-        </div>
-      )}
 
       {payModalTxn && (
         <div className="modal-backdrop" onClick={() => setPayModalTxn(null)} role="dialog" aria-modal="true">

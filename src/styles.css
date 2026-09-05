@@ -335,10 +335,11 @@ select.input {
 .detail-label { color: var(--text-dim); flex-shrink: 0; }
 .detail-row .mono { text-align: right; overflow-wrap: anywhere; }
 
+/* 方角、窄一點：整頁的調性是硬邊色塊，圓角藥丸在這裡顯得鬆散 */
 .pay-btn {
   background: var(--surface-2); border: 1px solid var(--accent); color: var(--accent);
-  padding: 8px 14px; border-radius: 999px; font-size: 12px; font-weight: 600; cursor: pointer; flex-shrink: 0;
-  font-family: inherit; min-height: 38px;
+  padding: 6px 10px; border-radius: 5px; font-size: var(--fs-meta); font-weight: 700; cursor: pointer; flex-shrink: 0;
+  font-family: inherit; min-height: 32px; letter-spacing: 0.02em;
 }
 
 .modal-backdrop {
@@ -373,10 +374,15 @@ select.input {
   padding: 8px 12px; font-size: 12px; font-weight: 700; cursor: pointer; font-family: inherit; flex-shrink: 0;
 }
 
-/* 表單底部的固定操作列，長表單不用每次滑到最下面 */
+/* 表單底部的固定操作列，長表單不用每次滑到最下面。
+   bottom 要貼 0 而不是 sa-bottom，否則 home indicator 那條的高度沒有東西鋪底色，
+   內容會從按鈕下面透出來。改成自己往下 padding 到安全區，順便左右滿版。 */
 .form-actions {
-  position: sticky; bottom: var(--sa-bottom); background: var(--bg); padding: 10px 0 4px;
-  border-top: 1px solid var(--border); margin-top: 14px; z-index: 30;
+  position: sticky; bottom: 0; z-index: 30;
+  background: var(--bg);
+  border-top: 1px solid var(--border);
+  margin: 14px calc(-16px - var(--sa-right)) 0 calc(-16px - var(--sa-left));
+  padding: 10px calc(16px + var(--sa-right)) calc(8px + var(--sa-bottom)) calc(16px + var(--sa-left));
 }
 .form-actions .row-form { margin-top: 0; }
 
@@ -748,6 +754,49 @@ select.input {
 .settle-hero-done .settle-hero-value { font-size: var(--fs-lead); color: var(--text-dim); }
 .settle-hero-list { margin-top: 12px; border-top: 1px solid var(--border); }
 
+/* 結算方式：擺在結算頁最上面，平常收合成一行 */
+.settle-mode {
+  border: 1px solid var(--border); border-radius: 8px;
+  background: var(--surface); margin-bottom: 12px;
+}
+.settle-mode-head {
+  display: flex; align-items: center; gap: 8px; width: 100%;
+  background: none; border: none; color: var(--text); font-family: inherit;
+  padding: 10px 12px; cursor: pointer; text-align: left; min-height: 42px;
+}
+.settle-mode-label {
+  font-size: var(--fs-micro); color: var(--text-dim); letter-spacing: 0.08em; flex-shrink: 0;
+}
+.settle-mode-value {
+  font-size: var(--fs-body); font-weight: 700; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.settle-mode-head .caret { margin-left: auto; flex-shrink: 0; }
+.settle-mode-body { padding: 0 12px 12px; border-top: 1px solid var(--border); padding-top: 10px; }
+.settle-mode-sub {
+  font-size: var(--fs-micro); color: var(--text-dim); letter-spacing: 0.08em; margin: 12px 0 6px;
+}
+
+/* 方角分段鍵 + 方角人名鍵，比全寬下拉選單緊實 */
+.seg { display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; }
+.seg button {
+  flex: 1; background: var(--surface-2); border: none; border-right: 1px solid var(--border);
+  color: var(--text-dim); font-family: inherit; font-size: var(--fs-body);
+  padding: 9px 4px; min-height: 38px; cursor: pointer;
+}
+.seg button:last-child { border-right: none; }
+.seg button.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+
+.pick-row { display: flex; flex-wrap: wrap; gap: 5px; }
+.pick {
+  display: inline-flex; align-items: center; gap: 4px;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 5px; padding: 6px 9px; min-height: 32px;
+  font-family: inherit; font-size: var(--fs-body); cursor: pointer;
+}
+.pick.on { background: var(--accent); border-color: var(--accent); color: var(--on-accent); font-weight: 700; }
+.pick-note { font-size: var(--fs-micro); opacity: 0.7; }
+
 /* 建議轉帳列 */
 .txn-list { display: flex; flex-direction: column; }
 .txn {
@@ -816,22 +865,50 @@ select.input {
 }
 .form-hint { font-size: var(--fs-meta); color: var(--text-dim); margin-top: 6px; line-height: 1.6; }
 
-/* 金額輸入：整張表單的焦點 */
+/* 金額輸入：整張表單的焦點。幣別分成獨立一格，不要塞在同一個框裡。 */
+.amount-line { display: flex; align-items: stretch; gap: 8px; margin-top: 12px; }
 .amount-box {
+  flex: 1; min-width: 0;
   background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
-  padding: 12px 14px; margin-top: 12px;
+  padding: 10px 12px 8px;
 }
-.amount-row { display: flex; align-items: center; gap: 10px; }
 .amount-input {
-  flex: 1; min-width: 0; background: none; border: none; color: var(--text);
+  display: block; width: 100%; background: none; border: none; color: var(--text);
   font-family: 'IBM Plex Mono', monospace; font-size: 30px; font-weight: 700;
-  letter-spacing: -0.02em; padding: 4px 0; margin: 0;
+  letter-spacing: -0.02em; padding: 2px 0; margin: 0;
   font-variant-numeric: tabular-nums;
 }
 .amount-input:focus { outline: none; }
 .amount-input::placeholder { color: var(--border); }
-.amount-cur { flex: 0 0 104px; }
-.amount-cur .input { margin-top: 0; }
-.amount-fx { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+.cur-box {
+  flex: 0 0 92px; display: flex; flex-direction: column; justify-content: center;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 8px 10px;
+}
+.cur-box-label { font-size: var(--fs-micro); color: var(--text-dim); letter-spacing: 0.04em; margin-bottom: 3px; }
+.cur-box .input { margin-top: 0; padding: 8px 26px 8px 8px; font-size: var(--fs-body); min-height: 34px; }
+
+/* 算式鍵：數字用系統鍵盤打，只補系統鍵盤沒有的運算符 */
+.calc-keys { display: flex; gap: 5px; margin-top: 8px; }
+.calc-key {
+  flex: 1; min-width: 0; background: var(--surface-2); border: 1px solid var(--border);
+  color: var(--text); border-radius: 6px; padding: 7px 0; min-height: 32px;
+  font-family: 'IBM Plex Mono', monospace; font-size: 15px; font-weight: 600;
+  cursor: pointer; line-height: 1;
+}
+.calc-key:active { background: var(--accent); color: var(--on-accent); border-color: var(--accent); }
+.calc-key-del { color: var(--text-dim); font-size: 13px; }
+.calc-result {
+  margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--border);
+  font-size: var(--fs-lead); font-weight: 700; color: var(--accent-2);
+  font-variant-numeric: tabular-nums;
+}
+.calc-result-wait { color: var(--text-dim); font-weight: 400; font-size: var(--fs-meta); }
+
+.amount-fx {
+  margin-top: 12px; padding: 12px 14px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+}
 
 .split-actions { display: flex; gap: 14px; margin-bottom: 8px; }

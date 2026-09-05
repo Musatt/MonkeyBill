@@ -170,6 +170,32 @@ export function oneCollectorSettlement(balances, collectorId, decimals) {
   return txns;
 }
 
+/**
+ * 誰先墊的錢最多。
+ * 「指定一人全收發」的預設收發款人用這個——代墊最多的人本來就要收回最多錢，
+ * 由他當窗口，實際會發生的轉帳筆數最少。
+ * 平手時取 memberIds 裡排比較前面的，結果才不會每次重算就跳。
+ */
+export function biggestPrepayer(memberIds, expenses) {
+  const paid = {};
+  (expenses || []).forEach((e) => {
+    if ((e.itemType || "expense") !== "expense") return;
+    Object.entries(computePayerBaseAmounts(e)).forEach(([id, v]) => {
+      paid[id] = (paid[id] || 0) + v;
+    });
+  });
+  let best = null;
+  let bestValue = -Infinity;
+  (memberIds || []).forEach((id) => {
+    const v = paid[id] || 0;
+    if (v > bestValue) {
+      bestValue = v;
+      best = id;
+    }
+  });
+  return best;
+}
+
 // 專案是否已結清
 export function isProjectSettled(project, projectExpenses) {
   if (projectExpenses.length === 0) return true;

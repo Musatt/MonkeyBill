@@ -524,7 +524,7 @@ select.input {
 }
 .amt-expense { color: var(--accent); }
 .amt-collection { color: var(--positive); }
-.amt-transfer { color: var(--text-dim); }
+.amt-transfer { color: var(--text-dim); font-size: var(--fs-lead); font-weight: 600; }
 
 /* 第三行：你分攤 / 你分到，跟著收支上色 */
 .item-mine { font-size: var(--fs-meta); font-variant-numeric: tabular-nums; }
@@ -720,3 +720,118 @@ select.input {
   text-decoration-color: var(--text-dim);
 }
 .trunc-full { font-size: var(--fs-lead); line-height: 1.7; overflow-wrap: anywhere; }
+
+/* 篩選：搜尋與分類收在「搜尋・分類」後面 */
+.filter-more { display: inline-flex; align-items: center; gap: 4px; }
+.filter-more .caret { font-size: 12px; color: currentColor; }
+
+/* ═══════════════════════════════════════════════
+   結算頁：先講「你」的部分，其餘收在後面
+   ═══════════════════════════════════════════════ */
+
+.settle-hero {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 16px; margin-top: 4px;
+}
+.settle-hero-out { border-color: color-mix(in srgb, var(--accent) 55%, var(--border)); }
+.settle-hero-in { border-color: color-mix(in srgb, var(--positive) 55%, var(--border)); }
+.settle-hero-done { border-style: dashed; }
+.settle-hero-label {
+  font-size: var(--fs-micro); color: var(--text-dim); letter-spacing: 0.1em; font-weight: 700;
+}
+.settle-hero-value {
+  font-size: 30px; font-weight: 700; letter-spacing: -0.03em; margin-top: 4px;
+  font-variant-numeric: tabular-nums; overflow-wrap: anywhere;
+}
+.settle-hero-out .settle-hero-value { color: var(--accent); }
+.settle-hero-in .settle-hero-value { color: var(--positive); }
+.settle-hero-done .settle-hero-value { font-size: var(--fs-lead); color: var(--text-dim); }
+.settle-hero-list { margin-top: 12px; border-top: 1px solid var(--border); }
+
+/* 建議轉帳列 */
+.txn-list { display: flex; flex-direction: column; }
+.txn {
+  display: flex; align-items: center; gap: 10px;
+  padding: 10px 0; border-bottom: 1px solid var(--border);
+}
+.txn:last-child { border-bottom: none; }
+.txn-flow { flex: 1; min-width: 0; display: flex; align-items: center; gap: 7px; font-size: var(--fs-body); }
+.txn-name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.txn-name-me { font-weight: 700; color: var(--accent-2); }
+.txn-arrow { color: var(--text-dim); flex-shrink: 0; }
+.txn-amt {
+  font-size: var(--fs-lead); font-weight: 700; flex-shrink: 0; white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
+
+/* 可收合的小標題 */
+.stat-head-btn {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  background: none; border: none; padding: 0; cursor: pointer; font-family: inherit; text-align: left;
+}
+.stat-head-btn .caret { margin-left: auto; }
+
+/* 餘額：該收 / 該付 / 已結清分組 */
+.bal-list { display: flex; flex-direction: column; gap: 14px; }
+.bal-group { display: flex; flex-direction: column; }
+.bal-group-label {
+  font-size: var(--fs-micro); color: var(--text-dim); letter-spacing: 0.08em;
+  padding-bottom: 4px; border-bottom: 1px solid var(--border);
+}
+.bal-row {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+}
+.bal-row-me .bal-name { font-weight: 700; }
+.bal-name { font-size: var(--fs-body); min-width: 0; overflow-wrap: anywhere; }
+.bal-out { font-size: var(--fs-micro); color: var(--text-dim); margin-left: 6px; }
+.bal-amt {
+  font-size: var(--fs-lead); font-weight: 700; flex-shrink: 0; white-space: nowrap;
+  font-variant-numeric: tabular-nums; color: var(--text-dim);
+}
+
+/* ═══════════════════════════════════════════════
+   新增／編輯項目表單
+   金額是主角，其餘用小標題分組
+   ═══════════════════════════════════════════════ */
+
+.form { display: flex; flex-direction: column; padding-bottom: 8px; }
+
+.form-title {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  font-size: var(--fs-title); font-weight: 700; font-family: 'Space Grotesk', sans-serif;
+  margin-bottom: 12px;
+}
+.form-title-meta { font-size: var(--fs-micro); color: var(--text-dim); font-weight: 400; font-family: var(--sans, inherit); }
+
+/* 分組小標題：跟統計頁同一套，不用標題帶 */
+.form-sec {
+  font-size: var(--fs-meta); font-weight: 700; color: var(--text-dim);
+  letter-spacing: 0.08em; margin: 22px 0 8px;
+  padding-bottom: 6px; border-bottom: 1px solid var(--border);
+}
+.form-label {
+  display: block; font-size: var(--fs-micro); color: var(--text-dim);
+  margin: 14px 0 4px; letter-spacing: 0.04em;
+}
+.form-hint { font-size: var(--fs-meta); color: var(--text-dim); margin-top: 6px; line-height: 1.6; }
+
+/* 金額輸入：整張表單的焦點 */
+.amount-box {
+  background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px 14px; margin-top: 12px;
+}
+.amount-row { display: flex; align-items: center; gap: 10px; }
+.amount-input {
+  flex: 1; min-width: 0; background: none; border: none; color: var(--text);
+  font-family: 'IBM Plex Mono', monospace; font-size: 30px; font-weight: 700;
+  letter-spacing: -0.02em; padding: 4px 0; margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+.amount-input:focus { outline: none; }
+.amount-input::placeholder { color: var(--border); }
+.amount-cur { flex: 0 0 104px; }
+.amount-cur .input { margin-top: 0; }
+.amount-fx { margin-top: 12px; padding-top: 12px; border-top: 1px solid var(--border); }
+
+.split-actions { display: flex; gap: 14px; margin-bottom: 8px; }

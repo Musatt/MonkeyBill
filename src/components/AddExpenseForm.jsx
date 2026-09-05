@@ -198,30 +198,78 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
   const lastEditedAt = isEdit ? formatTimestamp(initialValues?.lastEditedAt) : "";
 
   return (
-    <div className="screen">
-      <div className="onboard-eyebrow" style={{ marginBottom: 4 }}>{isEdit ? "編輯項目" : "新增項目"}</div>
-      {lastEditedName && (
-        <div className="hint-text">
-          最後編輯：{lastEditedName}
-          {lastEditedAt && ` · ${lastEditedAt}`}
-        </div>
-      )}
+    <div className="form">
+      <div className="form-title">
+        <span>{isEdit ? "編輯項目" : "新增項目"}</span>
+        {lastEditedName && (
+          <span className="form-title-meta">
+            最後編輯：{lastEditedName}
+            {lastEditedAt && ` · ${lastEditedAt}`}
+          </span>
+        )}
+      </div>
 
-      <div className="section-label">項目類型</div>
+      {/* 類型決定整張表單長什麼樣，所以放最前面當作情境 */}
       <div className="mode-switch mode-switch-3">
         <button className={itemType === "expense" ? "on" : ""} onClick={() => setItemType("expense")}>支出</button>
         <button className={itemType === "collection" ? "on" : ""} onClick={() => setItemType("collection")}>收入</button>
         <button className={itemType === "transfer" ? "on" : ""} onClick={() => setItemType("transfer")}>轉帳</button>
       </div>
-      <div className="hint-text">
+      <div className="form-hint">
         {itemType === "expense" && "有人先墊錢、大家分攤。"}
         {itemType === "collection" && "有錢進來（退款、補助等），由指定的人分。"}
         {itemType === "transfer" && "純粹某人拿錢給某人，不分攤。"}
       </div>
 
+      {/* 金額是這張表單的主角，做大 */}
+      <div className="amount-box">
+        <div className="amount-row">
+          <input
+            className="amount-input mono"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0"
+            aria-label="金額"
+          />
+          <div className="amount-cur">
+            <CurrencySelect value={currency} onChange={setCurrency} />
+          </div>
+        </div>
+        {needsConversion && (
+          <div className="amount-fx">
+            <div className="mode-switch">
+              <button className={rateMode === "rate" ? "on" : ""} onClick={() => setRateMode("rate")}>填匯率</button>
+              <button className={rateMode === "converted" ? "on" : ""} onClick={() => setRateMode("converted")}>填{project.baseCurrency}金額</button>
+            </div>
+            {rateMode === "rate" ? (
+              <>
+                <label className="form-label">匯率 1 {currency} = ? {project.baseCurrency}</label>
+                <input className="input mono" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} />
+                <div className="form-hint mono">= {formatMoney(baseAmount, project.baseCurrency, decimals)}</div>
+              </>
+            ) : (
+              <>
+                <label className="form-label">對應 {project.baseCurrency} 金額</label>
+                <input className="input mono" inputMode="decimal" value={convertedAmount} onChange={(e) => setConvertedAmount(e.target.value)} />
+                <div className="form-hint mono">匯率 ≈ {effectiveRate.toFixed(4)}</div>
+              </>
+            )}
+          </div>
+        )}
+      </div>
+
+      <label className="form-label">項目說明{itemType === "transfer" ? "（選填）" : ""}</label>
+      <input
+        className="input"
+        value={note}
+        onChange={(e) => setNote(e.target.value)}
+        placeholder={itemType === "transfer" ? "例如：結算轉帳" : "例如：酒"}
+      />
+
       {itemType !== "transfer" && (
         <>
-          <div className="section-label">類別</div>
+          <label className="form-label">類別</label>
           <div className="cat-grid">
             {CATEGORIES.map((c) => (
               <button
@@ -237,52 +285,12 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
         </>
       )}
 
-      <div className="section-label">項目說明{itemType === "transfer" ? "(選填)" : ""}</div>
-      <input
-        className="input"
-        value={note}
-        onChange={(e) => setNote(e.target.value)}
-        placeholder={itemType === "transfer" ? "例如：結算轉帳" : "例如：酒"}
-      />
-
-      <div className="row-2">
-        <div style={{ flex: 2 }}>
-          <div className="section-label">金額</div>
-          <input className="input mono" inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="0" />
-        </div>
-        <div style={{ flex: 1 }}>
-          <div className="section-label">幣別</div>
-          <CurrencySelect value={currency} onChange={setCurrency} />
-        </div>
-      </div>
-
-      {needsConversion && (
-        <div className="card subtle">
-          <div className="mode-switch">
-            <button className={rateMode === "rate" ? "on" : ""} onClick={() => setRateMode("rate")}>填匯率</button>
-            <button className={rateMode === "converted" ? "on" : ""} onClick={() => setRateMode("converted")}>填{project.baseCurrency}金額</button>
-          </div>
-          {rateMode === "rate" ? (
-            <>
-              <div className="section-label">匯率 (1 {currency} = ? {project.baseCurrency})</div>
-              <input className="input mono" inputMode="decimal" value={rate} onChange={(e) => setRate(e.target.value)} />
-              <div className="hint-text mono">= {formatMoney(baseAmount, project.baseCurrency, decimals)}</div>
-            </>
-          ) : (
-            <>
-              <div className="section-label">對應 {project.baseCurrency} 金額</div>
-              <input className="input mono" inputMode="decimal" value={convertedAmount} onChange={(e) => setConvertedAmount(e.target.value)} />
-              <div className="hint-text mono">匯率 ≈ {effectiveRate.toFixed(4)}</div>
-            </>
-          )}
-        </div>
-      )}
-
       {itemType === "transfer" ? (
         <>
+          <div className="form-sec">誰給誰</div>
           <div className="row-2">
             <div>
-              <div className="section-label">付款人</div>
+              <label className="form-label">付款人</label>
               <select className="input" value={fromId} onChange={(e) => setFromId(e.target.value)}>
                 {projectMembers.map((m) => (
                   <option key={m.id} value={m.id}>{m.name}</option>
@@ -290,7 +298,7 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
               </select>
             </div>
             <div>
-              <div className="section-label">收款人</div>
+              <label className="form-label">收款人</label>
               <select className="input" value={toId} onChange={(e) => setToId(e.target.value)}>
                 {projectMembers.map((m) => (
                   <option key={m.id} value={m.id}>{m.name}</option>
@@ -298,11 +306,11 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
               </select>
             </div>
           </div>
-          {fromId === toId && <div className="hint-text hint-warn">付款人與收款人不能相同</div>}
+          {fromId === toId && <div className="form-hint hint-warn">付款人與收款人不能相同</div>}
         </>
       ) : (
         <>
-          <div className="section-label">{payerLabel}</div>
+          <div className="form-sec">{payerLabel}</div>
           <div className="mode-switch">
             <button className={payerMode === "single" ? "on" : ""} onClick={() => setPayerMode("single")}>{payerModeLabels[0]}</button>
             <button className={payerMode === "multi" ? "on" : ""} onClick={() => setPayerMode("multi")}>{payerModeLabels[1]}</button>
@@ -335,40 +343,13 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
                   />
                 </div>
               ))}
-              <div className={"hint-text mono" + (Math.abs(payerDiff) < 0.01 ? " hint-ok" : " hint-warn")}>
+              <div className={"form-hint mono" + (Math.abs(payerDiff) < 0.01 ? " hint-ok" : " hint-warn")}>
                 {Math.abs(payerDiff) < 0.01 ? `✓ 合計 ${payerSum.toFixed(2)} ${currency}` : `差額 ${payerDiff.toFixed(2)} ${currency}`}
               </div>
             </div>
           )}
-        </>
-      )}
 
-      <div className="row-2">
-        <div style={{ flex: 1.2 }}>
-          <div className="section-label">日期</div>
-          <DatePickerBox value={date} onChange={setDate} />
-        </div>
-        <div style={{ flex: 1 }}>
-          <div className="section-label">時間（24小時制）</div>
-          <div className="picker-box">
-            <select value={hour} onChange={(e) => setHour(e.target.value)} aria-label="時">
-              {hours.map((h) => (
-                <option key={h} value={h}>{h}</option>
-              ))}
-            </select>
-            <span className="mono colon">:</span>
-            <select value={minute} onChange={(e) => setMinute(e.target.value)} aria-label="分">
-              {minutes.map((m) => (
-                <option key={m} value={m}>{m}</option>
-              ))}
-            </select>
-          </div>
-        </div>
-      </div>
-
-      {itemType !== "transfer" && (
-        <>
-          <div className="section-label">{splitLabel}</div>
+          <div className="form-sec">{splitLabel}</div>
           <div className="mode-switch mode-switch-3">
             <button className={splitType === "equal" ? "on" : ""} onClick={() => setSplitType("equal")}>均分</button>
             <button className={splitType === "ratio" ? "on" : ""} onClick={() => setSplitType("ratio")}>比例</button>
@@ -377,6 +358,10 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
 
           {splitType === "equal" && (
             <>
+              <div className="split-actions">
+                <button className="link-btn" onClick={() => setEqualSel(new Set(projectMembers.map((m) => m.id)))}>全選</button>
+                <button className="link-btn" onClick={() => setEqualSel(new Set())}>全不選</button>
+              </div>
               <div className="member-chip-row">
                 {projectMembers.map((m) => (
                   <button
@@ -388,9 +373,9 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
                   </button>
                 ))}
               </div>
-              <div className="hint-text">
+              <div className="form-hint">
                 {equalSel.size > 0 && amountNum > 0
-                  ? `${equalSel.size} 人均分，每人 ${formatMoney(baseAmount / equalSel.size, project.baseCurrency, 2)}`
+                  ? `${equalSel.size} 人均分，每人 ${formatMoney(baseAmount / equalSel.size, project.baseCurrency, decimals)}`
                   : `已選 ${equalSel.size} 人`}
               </div>
             </>
@@ -414,7 +399,7 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
                   </div>
                 );
               })}
-              <div className="hint-text">比例總和：{ratioTotal || 0}（填 0 或留空的人不分攤）</div>
+              <div className="form-hint">比例總和：{ratioTotal || 0}（填 0 或留空的人不分攤）</div>
             </div>
           )}
 
@@ -436,7 +421,7 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
                   </div>
                 );
               })}
-              <div className={"hint-text mono" + (Math.abs(customDiff) < 0.01 ? " hint-ok" : " hint-warn")}>
+              <div className={"form-hint mono" + (Math.abs(customDiff) < 0.01 ? " hint-ok" : " hint-warn")}>
                 {Math.abs(customDiff) < 0.01 ? `✓ 合計 ${customSum.toFixed(2)} ${currency}` : `差額 ${customDiff.toFixed(2)} ${currency}`}
               </div>
             </div>
@@ -444,10 +429,33 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
         </>
       )}
 
-      {/* 黏在底部的操作列，長表單不用每次滑到最下面才能存 */}
+      <div className="form-sec">時間</div>
+      <div className="row-2">
+        <div style={{ flex: 1.3 }}>
+          <label className="form-label">日期</label>
+          <DatePickerBox value={date} onChange={setDate} />
+        </div>
+        <div style={{ flex: 1 }}>
+          <label className="form-label">時間（24 小時制）</label>
+          <div className="picker-box">
+            <select value={hour} onChange={(e) => setHour(e.target.value)} aria-label="時">
+              {hours.map((h) => (
+                <option key={h} value={h}>{h}</option>
+              ))}
+            </select>
+            <span className="mono colon">:</span>
+            <select value={minute} onChange={(e) => setMinute(e.target.value)} aria-label="分">
+              {minutes.map((m) => (
+                <option key={m} value={m}>{m}</option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
       <div className="form-actions">
         {!canSubmit && !confirmingSave && invalidReason && (
-          <div className="hint-text hint-warn" style={{ textAlign: "center", marginBottom: 8 }}>{invalidReason}</div>
+          <div className="form-hint hint-warn" style={{ textAlign: "center", marginBottom: 8 }}>{invalidReason}</div>
         )}
         {isEdit && confirmingSave ? (
           <div className="row-form">

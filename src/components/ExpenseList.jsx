@@ -19,6 +19,7 @@ export function ExpenseList({ project, expenses, membersById, myId, canDelete, o
   const [typeFilterSet, setTypeFilterSet] = useState(() => new Set());
   const [categoryFilterSet, setCategoryFilterSet] = useState(() => new Set());
   const [onlyMine, setOnlyMine] = useState(false);
+  const [moreOpen, setMoreOpen] = useState(false);
 
   const decimals = projectDecimals(project);
 
@@ -156,14 +157,11 @@ export function ExpenseList({ project, expenses, membersById, myId, canDelete, o
 
   return (
     <div>
-      {/* 篩選：放在內容最上方，選完往下滑就會離開視線，不置頂 */}
+      {/*
+        篩選：常用的類型永遠露出來，搜尋與分類收在後面。
+        全部攤開會佔掉約 150px，一進來要滑過才看得到帳。
+      */}
       <div className="filter-block">
-        <input
-          className="input input-search"
-          placeholder="搜尋項目說明"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-        />
         <div className="filter-chip-row">
           {typeFilters.map(([key, label]) => (
             <button
@@ -177,25 +175,44 @@ export function ExpenseList({ project, expenses, membersById, myId, canDelete, o
           <button className={"filter-chip" + (onlyMine ? " on" : "")} onClick={() => setOnlyMine((v) => !v)}>
             只看我的
           </button>
-        </div>
-        <div className="filter-chip-row">
-          {CATEGORIES.map((c) => {
-            const active = categoryFilterSet.has(c.id);
-            return (
-              <button
-                key={c.id}
-                className={"filter-chip" + (active ? " on-cat" : "")}
-                style={active ? { "--cat-color": c.color } : undefined}
-                onClick={() => toggleCategoryFilter(c.id)}
-              >
-                {c.label}
-              </button>
-            );
-          })}
+          <button
+            className={"filter-chip filter-more" + (moreOpen || search.trim() || categoryFilterSet.size > 0 ? " on" : "")}
+            onClick={() => setMoreOpen((v) => !v)}
+            aria-expanded={moreOpen}
+          >
+            搜尋・分類{categoryFilterSet.size > 0 ? ` (${categoryFilterSet.size})` : ""}
+            <span className={"caret" + (moreOpen ? " caret-open" : "")}>›</span>
+          </button>
           {hasFilter && (
-            <button className="filter-clear" onClick={clearFilters}>清除篩選</button>
+            <button className="filter-clear" onClick={clearFilters}>清除</button>
           )}
         </div>
+
+        {moreOpen && (
+          <>
+            <input
+              className="input input-search"
+              placeholder="搜尋項目說明"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+            />
+            <div className="filter-chip-row">
+              {CATEGORIES.map((c) => {
+                const active = categoryFilterSet.has(c.id);
+                return (
+                  <button
+                    key={c.id}
+                    className={"filter-chip" + (active ? " on-cat" : "")}
+                    style={active ? { "--cat-color": c.color } : undefined}
+                    onClick={() => toggleCategoryFilter(c.id)}
+                  >
+                    {c.label}
+                  </button>
+                );
+              })}
+            </div>
+          </>
+        )}
       </div>
 
       <div className="band">

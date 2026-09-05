@@ -36,7 +36,7 @@ const newUser = (name, passwordHash = null) => ({
 });
 
 export default function App() {
-  const { data, loading, err, persist, retry, refresh, saveState, retrySave } = useStore();
+  const { data, loading, err, persist, retry, refresh, saveState, retrySave, lastSyncedAt } = useStore();
   const { route, navigate, replace, up } = useRouter();
   const [session, setSession] = useState(loadSession);
   const [backstageGate, setBackstageGate] = useState(false);
@@ -508,6 +508,7 @@ export default function App() {
         membersById={data.users}
         myId={myId}
         perms={perms}
+        lastSyncedAt={lastSyncedAt}
         onBack={goUp}
         tab={route.tab}
         onTabChange={(tab) => replace({ ...route, tab, editor: null })}
@@ -536,10 +537,12 @@ export default function App() {
         expenses={expensesOfGroup}
         myId={myId}
         isAdmin={amAdmin}
+        lastSyncedAt={lastSyncedAt}
+        onRefresh={refresh}
         onBack={goUp}
         onOpenProject={(projectId) => navigate({ screen: "project", groupId: currentGroup.id, projectId, tab: "expenses" })}
         onCreateProject={createProject}
-        onOpenMember={(userId) => navigate({ screen: "user", userId })}
+        onOpenMember={(userId) => navigate({ screen: "user", groupId: currentGroup.id, userId })}
         onOpenSettings={() => navigate({ screen: "group", groupId: currentGroup.id, settings: true })}
         onOpenMembers={() => navigate({ screen: "group", groupId: currentGroup.id, members: true })}
         onShare={() =>
@@ -557,6 +560,7 @@ export default function App() {
       <Home
         me={me}
         groups={visibleGroups}
+        lastSyncedAt={lastSyncedAt}
         users={data.users}
         onOpenGroup={(groupId) => navigate({ screen: "group", groupId })}
         onCreateGroup={createGroup}

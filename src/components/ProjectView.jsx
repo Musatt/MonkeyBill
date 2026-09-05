@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from "react";
-import { todayStr, nowHHMM } from "../lib/format.js";
+import { todayStr, nowHHMM, relativeTime } from "../lib/format.js";
 import { isPickable } from "../lib/permissions.js";
 import { memberIdsUsedByExpense } from "../lib/schema.js";
+import { exportCSV } from "../lib/exportCsv.js";
 import { AddExpenseForm } from "./AddExpenseForm.jsx";
 import { ExpenseList } from "./ExpenseList.jsx";
 import { SettlementPage } from "./SettlementPage.jsx";
@@ -17,12 +18,13 @@ const TABS = [
 
 export function ProjectView({
   group,
+  users,
   project,
   expenses,
-  users,
   membersById,
   myId,
   perms,
+  lastSyncedAt,
   onBack,
   tab,
   onTabChange,
@@ -35,10 +37,18 @@ export function ProjectView({
   onRefresh,
 }) {
   const [syncing, setSyncing] = useState(false);
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [toast, setToast] = useState("");
   // 「已付款」帶進表單的預填內容，無法用網址表達，所以放在元件狀態裡
   const [prefill, setPrefill] = useState(null);
+  const [, forceTick] = useState(0);
 
-  // 換頁時回到最上面，否則從清單中段點「編輯」會覺得沒反應
+  // 讓「N 秒前同步」自己會走
+  useEffect(() => {
+    const t = setInterval(() => forceTick((n) => n + 1), 15000);
+    return () => clearInterval(t);
+  }, []);
+
   useEffect(() => {
     window.scrollTo(0, 0);
   }, [tab, editor?.mode, editor?.expenseId]);
@@ -49,6 +59,7 @@ export function ProjectView({
 
   const handleRefresh = async () => {
     setSyncing(true);
+    setMenuOpen(false);
     try {
       await onRefresh();
     } finally {
@@ -80,12 +91,9 @@ export function ProjectView({
       editorProps = { isEdit: false, initialValues: prefill };
     } else {
       const exp = expenses.find((e) => e.id === editor.expenseId);
-      if (!exp) {
-        // 網址指到一筆已經被刪掉的項目
-        editorProps = { missing: true };
-      } else if (editor.mode === "edit") {
-        editorProps = { isEdit: true, initialValues: exp };
-      } else {
+      if (!exp) editorProps = { missing: true };
+      else if (editor.mode === "edit") editorProps = { isEdit: true, initialValues: exp };
+      else {
         const n = nowHHMM();
         editorProps = { isEdit: false, initialValues: { ...exp, date: todayStr(), time: `${n.hour}:${n.minute}` } };
       }
@@ -93,7 +101,6 @@ export function ProjectView({
   }
 
   // 表單的選人名單：目前可選的人，加上這筆項目原本就用到的人
-  // （編輯舊紀錄時，就算某人已被停用也要留著，否則一存檔就把他弄丟）
   const formMemberIds = (() => {
     const base = project.memberIds.filter((id) => isPickable(users[id], group));
     const item = editorProps && editorProps.initialValues ? memberIdsUsedByExpense(editorProps.initialValues) : [];
@@ -101,25 +108,44 @@ export function ProjectView({
     return project.memberIds.filter((id) => base.includes(id) || extra.includes(id));
   })();
 
+  const doExport = () => {
+    setMenuOpen(false);
+    setToast(exportCSV(project, expenses, membersById) ? "已匯出 CSV" : "匯出失敗，可能被瀏覽器擋下");
+    setTimeout(() => setToast(""), 2600);
+  };
+
   return (
     <div>
-      <div className="topbar">
-        <button className="backbtn" onClick={editor ? onCloseEditor : onBack} aria-label="返回">‹</button>
-        <div className="topbar-text">
-          <div className="topbar-title">{project.name}</div>
-          {project.description && <div className="topbar-sub">{project.description}</div>}
-          <div className="topbar-sub">{group.name} · 你是 {membersById[myId]?.name || "?"}</div>
+      <div className="hdr">
+        <button className="icon-btn backbtn" onClick={editor ? onCloseEditor : onBack} aria-label="返回">‹</button>
+        <div className="hdr-text">
+          <div className="hdr-name">{project.name}</div>
+          <div className="hdr-sub">
+            {group.name} · 你是 {membersById[myId]?.name || "?"} ·{" "}
+            {syncing ? "同步中…" : relativeTime(lastSyncedAt)}
+          </div>
         </div>
+        {!editor && (
+          <div className="menu-wrap">
+            <button className="icon-btn" onClick={() => setMenuOpen((v) => !v)} aria-label="更多" aria-expanded={menuOpen}>
+              ⋯
+            </button>
+            {menuOpen && (
+              <>
+                <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
+                <div className="menu-pop" role="menu">
+                  <button onClick={handleRefresh}>立即同步</button>
+                  <button onClick={() => { setMenuOpen(false); onShare(); }}>分享專案</button>
+                  <button onClick={doExport}>匯出 CSV</button>
+                  <button onClick={() => { setMenuOpen(false); onOpenSettings(); }}>編輯專案</button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
-      {!editor && (
-        <div className="topbar-actions">
-          <button className="edit-icon-btn" onClick={onShare}>🔗 分享</button>
-          <button className="edit-icon-btn" onClick={handleRefresh} disabled={syncing}>
-            {syncing ? "同步中…" : "🔄 同步"}
-          </button>
-          <button className="edit-icon-btn" onClick={onOpenSettings}>編輯</button>
-        </div>
-      )}
+
+      {toast && <div className="toast">{toast}</div>}
 
       {editorProps ? (
         editorProps.missing ? (
@@ -143,25 +169,27 @@ export function ProjectView({
         )
       ) : (
         <>
-          <div className="tabbar">
+          <div className="tabbar tabbar-sticky">
             {TABS.map(([id, label]) => (
               <button key={id} className={"tab" + (tab === id ? " tab-on" : "")} onClick={() => onTabChange(id)}>
                 {label}
               </button>
             ))}
           </div>
+
           {tab === "expenses" && (
-            <ExpenseList
-              project={project}
-              expenses={expenses}
-              membersById={membersById}
-              myId={myId}
-              onAdd={() => onOpenEditor("new")}
-              onEdit={(id) => onOpenEditor("edit", id)}
-              onDuplicate={(id) => onOpenEditor("copy", id)}
-              canDelete={perms.canDeleteExpenseById}
-              onDelete={actions.deleteExpense}
-            />
+            <>
+              <ExpenseList
+                project={project}
+                expenses={expenses}
+                membersById={membersById}
+                myId={myId}
+                canDelete={perms.canDeleteExpenseById}
+                onEdit={(id) => onOpenEditor("edit", id)}
+                onDelete={actions.deleteExpense}
+              />
+              <button className="fab" onClick={() => onOpenEditor("new")} aria-label="新增項目">＋</button>
+            </>
           )}
           {tab === "settlement" && (
             <SettlementPage

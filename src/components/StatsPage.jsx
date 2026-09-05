@@ -85,7 +85,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
             <div className="hint-text">不含收入與轉帳項目</div>
           </div>
 
-          <div className="section-label">分類佔比</div>
+          <div className="band"><span>分類佔比</span></div>
           <CategoryBarList
             byCategory={groupBuckets.spend.amounts}
             itemsByCategory={groupBuckets.spend.lists}
@@ -101,7 +101,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
                 <div className="stat-hero-label">收入總額</div>
                 <div className="stat-hero-value mono">{formatMoney(totalCollected, project.baseCurrency, decimals)}</div>
               </div>
-              <div className="section-label">收入分類佔比</div>
+              <div className="band"><span>收入分類佔比</span></div>
               <CategoryBarList
                 byCategory={groupBuckets.collect.amounts}
                 itemsByCategory={groupBuckets.collect.lists}
@@ -115,7 +115,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
         </>
       ) : (
         <>
-          <div className="section-label">查看對象</div>
+          <div className="band"><span>查看對象</span></div>
           <select className="input" value={viewMemberId} onChange={(e) => setPickedMemberId(e.target.value)}>
             {project.memberIds.map((id) => (
               <option key={id} value={id}>{membersById[id]?.name || "?"}</option>
@@ -143,7 +143,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
             </div>
           </div>
 
-          <div className="section-label" style={{ marginTop: 16 }}>個人分類支出</div>
+          <div className="band" style={{ marginTop: 16 }}><span>個人分類支出</span></div>
           <CategoryBarList
             byCategory={personal.spend.amounts}
             itemsByCategory={personal.spend.lists}
@@ -155,7 +155,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
 
           {personal.collect.total > 0 && (
             <>
-              <div className="section-label" style={{ marginTop: 16 }}>個人分類收入</div>
+              <div className="band" style={{ marginTop: 16 }}><span>個人分類收入</span></div>
               <CategoryBarList
                 byCategory={personal.collect.amounts}
                 itemsByCategory={personal.collect.lists}

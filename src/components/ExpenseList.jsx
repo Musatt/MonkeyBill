@@ -2,58 +2,22 @@ import React, { useState } from "react";
 import { CATEGORIES } from "../constants.js";
 import { categoryOf, formatMoney, projectDecimals } from "../lib/format.js";
 import { personalItemAmount } from "../lib/money.js";
-import { Chip } from "./primitives.jsx";
 
-function sanitizeFilename(s) {
-  return s.replace(/[\\/:*?"<>|]/g, "_").slice(0, 80) || "專案";
+const KIND_LABEL = { expense: "支出", collection: "收入", transfer: "轉帳" };
+
+/** 付款人太多就不一一列出，直接寫人數 */
+function payerText(payers, membersById) {
+  if (payers.length === 0) return "—";
+  if (payers.length > 3) return `付款 ${payers.length} 人`;
+  return `付款：${payers.map((p) => membersById[p.memberId]?.name || "?").join("、")}`;
 }
 
-export function exportCSV(project, expenses, membersById) {
-  const header = ["日期", "時間", "類型", "類別", "說明", "原始金額", "原始幣別", "匯率", `金額(${project.baseCurrency})`, "付款人/收款人", "分帳方式", "參與人數"];
-  const rows = expenses.map((e) => {
-    const itemType = e.itemType || "expense";
-    if (itemType === "transfer") {
-      return [
-        e.date, e.time, "轉帳", "", e.note,
-        e.amount, e.currency, e.exchangeRate ?? 1, e.baseAmount,
-        `${membersById[e.fromMemberId]?.name || "?"}→${membersById[e.toMemberId]?.name || "?"}`,
-        "", "",
-      ];
-    }
-    const payerNames = (e.payers || []).map((p) => membersById[p.memberId]?.name || "?").join("、");
-    const typeLabelStr = itemType === "collection" ? "收入" : "支出";
-    const splitLabelStr = e.splitType === "equal" ? "均分" : e.splitType === "ratio" ? "比例" : "自訂";
-    return [
-      e.date, e.time, typeLabelStr, categoryOf(e.category).label, e.note,
-      e.amount, e.currency, e.exchangeRate ?? 1, e.baseAmount,
-      payerNames, splitLabelStr, (e.splitMemberIds || []).length,
-    ];
-  });
-  const csvLines = [header, ...rows].map((row) => row.map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(","));
-  const csv = "﻿" + csvLines.join("\r\n");
-  try {
-    const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement("a");
-    a.href = url;
-    a.download = `${sanitizeFilename(project.name)}-項目紀錄.csv`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    URL.revokeObjectURL(url);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-export function ExpenseList({ project, expenses, membersById, myId, canDelete, onAdd, onEdit, onDelete, onDuplicate }) {
+export function ExpenseList({ project, expenses, membersById, myId, canDelete, onEdit, onDelete }) {
   const [confirmDeleteId, setConfirmDeleteId] = useState(null);
   const [search, setSearch] = useState("");
-  const [typeFilterSet, setTypeFilterSet] = useState(() => new Set()); // 空的代表全部
+  const [typeFilterSet, setTypeFilterSet] = useState(() => new Set());
   const [categoryFilterSet, setCategoryFilterSet] = useState(() => new Set());
   const [onlyMine, setOnlyMine] = useState(false);
-  const [exportError, setExportError] = useState("");
 
   const decimals = projectDecimals(project);
 
@@ -86,7 +50,7 @@ export function ExpenseList({ project, expenses, membersById, myId, canDelete, o
   });
   const sorted = [...filtered].sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
 
-  const hasFilter = typeFilterSet.size > 0 || categoryFilterSet.size > 0 || onlyMine || search.trim();
+  const hasFilter = typeFilterSet.size > 0 || categoryFilterSet.size > 0 || onlyMine || !!search.trim();
   const clearFilters = () => {
     setTypeFilterSet(new Set());
     setCategoryFilterSet(new Set());
@@ -94,38 +58,17 @@ export function ExpenseList({ project, expenses, membersById, myId, canDelete, o
     setSearch("");
   };
 
-  // 篩選結果的支出合計（收入與轉帳不計入，跟統計頁的口徑一致）
   const filteredSpend = sorted
     .filter((e) => (e.itemType || "expense") === "expense")
     .reduce((s, e) => s + e.baseAmount, 0);
 
-  const actionRow = (id) => {
-    const allowed = canDelete(id);
-    return confirmDeleteId === id ? (
-      <div className="receipt-actions">
-        <button className="del-btn" onClick={() => setConfirmDeleteId(null)}>取消</button>
-        <button
-          className="del-btn del-btn-confirm"
-          onClick={() => {
-            onDelete(id);
-            setConfirmDeleteId(null);
-          }}
-        >
-          確定刪除
-        </button>
-      </div>
-    ) : (
-      <div className="receipt-actions">
-        <button className="del-btn" onClick={() => onDuplicate(id)}>複製</button>
-        <button className="del-btn" onClick={() => onEdit(id)}>編輯</button>
-        {allowed.ok ? (
-          <button className="del-btn del-btn-danger" onClick={() => setConfirmDeleteId(id)}>刪除</button>
-        ) : (
-          <span className="del-btn del-btn-muted" title={allowed.reason}>刪除</span>
-        )}
-      </div>
-    );
-  };
+  // 依日期分組，日期帶才能各自 sticky
+  const groups = [];
+  sorted.forEach((e) => {
+    const last = groups[groups.length - 1];
+    if (last && last.date === e.date) last.items.push(e);
+    else groups.push({ date: e.date, items: [e] });
+  });
 
   const typeFilters = [
     ["expense", "支出"],
@@ -133,147 +76,151 @@ export function ExpenseList({ project, expenses, membersById, myId, canDelete, o
     ["transfer", "轉帳"],
   ];
 
-  let lastDate = null;
+  const renderItem = (e) => {
+    const itemType = e.itemType || "expense";
+    const isTransfer = itemType === "transfer";
+    const cat = isTransfer ? null : categoryOf(e.category);
+    const myAmount = personalItemAmount(e, myId, decimals);
+    const allowed = canDelete(e.id);
+    const confirming = confirmDeleteId === e.id;
+
+    const who = isTransfer
+      ? `${membersById[e.fromMemberId]?.name || "?"} → ${membersById[e.toMemberId]?.name || "?"}`
+      : payerText(e.payers || [], membersById);
+    const splitText = isTransfer
+      ? "內部轉帳"
+      : `${e.splitType === "equal" ? "均分" : e.splitType === "ratio" ? "比例" : "自訂"} · ${(e.splitMemberIds || []).length} 人`;
+
+    return (
+      <div key={e.id} className="item">
+        <div className="item-row1">
+          <span className={"kind kind-" + itemType}>{KIND_LABEL[itemType]}</span>
+          {cat && (
+            <span className="cat" style={{ "--cat-color": cat.color }}>
+              {cat.label}
+            </span>
+          )}
+          <span className="item-acts">
+            {confirming ? (
+              <>
+                <button className="act" onClick={() => setConfirmDeleteId(null)}>取消</button>
+                <button
+                  className="act act-confirm"
+                  onClick={() => {
+                    onDelete(e.id);
+                    setConfirmDeleteId(null);
+                  }}
+                >
+                  確定刪除
+                </button>
+              </>
+            ) : (
+              <>
+                <button className="act" onClick={() => onEdit(e.id)}>編輯</button>
+                {allowed.ok ? (
+                  <button className="act act-danger" onClick={() => setConfirmDeleteId(e.id)}>刪除</button>
+                ) : (
+                  <span className="act act-muted" title={allowed.reason}>刪除</span>
+                )}
+              </>
+            )}
+          </span>
+        </div>
+
+        <div className="item-row2">
+          <span className="item-desc">{e.note}</span>
+          <span className={"item-amt mono amt-" + itemType}>{formatMoney(e.baseAmount, project.baseCurrency, decimals)}</span>
+        </div>
+
+        {myAmount !== null && !isTransfer && (
+          <div className={"item-mine mono " + (itemType === "collection" ? "amt-collection" : "amt-expense")}>
+            你 {itemType === "collection" ? "分到" : "分攤"} {formatMoney(Math.abs(myAmount), project.baseCurrency, decimals)}
+          </div>
+        )}
+
+        <div className="item-meta">
+          <span className="meta-time mono">{e.time}</span>
+          <span className="meta-who">{who}</span>
+          <span className="meta-split">{splitText}</span>
+        </div>
+
+        {e.currency !== project.baseCurrency && (
+          <div className="item-fx mono">
+            原始 {formatMoney(e.amount, e.currency)} · 匯率 {Number(e.exchangeRate ?? 1).toFixed(4)}
+          </div>
+        )}
+      </div>
+    );
+  };
 
   return (
-    <div className="screen">
-      <div className="row-form">
-        <button className="btn-accent" style={{ flex: 1 }} onClick={onAdd}>＋ 新增項目</button>
-        <button
-          className="btn-ghost"
-          style={{ flex: "0 0 auto" }}
-          onClick={() => setExportError(exportCSV(project, expenses, membersById) ? "" : "匯出失敗，可能是瀏覽器擋下了下載")}
-        >
-          匯出 CSV
-        </button>
-      </div>
-      {exportError && <div className="hint-text hint-warn">{exportError}</div>}
-
-      <input
-        className="input"
-        style={{ marginTop: 10 }}
-        placeholder="搜尋項目說明"
-        value={search}
-        onChange={(e) => setSearch(e.target.value)}
-      />
-      <div className="filter-chip-row">
-        {typeFilters.map(([key, label]) => (
-          <button key={key} className={"filter-chip" + (typeFilterSet.has(key) ? " on" : "")} onClick={() => toggleTypeFilter(key)}>
-            {label}
-          </button>
-        ))}
-        <button className={"filter-chip" + (onlyMine ? " on" : "")} onClick={() => setOnlyMine((v) => !v)}>
-          只看我的
-        </button>
-      </div>
-      <div className="filter-chip-row" style={{ marginTop: 6 }}>
-        {CATEGORIES.map((c) => {
-          const active = categoryFilterSet.has(c.id);
-          return (
+    <div>
+      {/* 篩選：放在內容最上方，選完往下滑就會離開視線，不置頂 */}
+      <div className="filter-block">
+        <input
+          className="input input-search"
+          placeholder="搜尋項目說明"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+        />
+        <div className="filter-chip-row">
+          {typeFilters.map(([key, label]) => (
             <button
-              key={c.id}
-              className="filter-chip"
-              style={active ? { background: `${c.color}22`, borderColor: `${c.color}55`, color: c.color, fontWeight: 700 } : undefined}
-              onClick={() => toggleCategoryFilter(c.id)}
+              key={key}
+              className={"filter-chip" + (typeFilterSet.has(key) ? " on" : "")}
+              onClick={() => toggleTypeFilter(key)}
             >
-              {c.label}
+              {label}
             </button>
-          );
-        })}
-        {hasFilter && (
-          <button className="filter-clear" onClick={clearFilters}>清除篩選</button>
-        )}
-      </div>
-      <div className="list-summary">
-        <span>共 {sorted.length} 筆{hasFilter ? `（全部 ${expenses.length} 筆）` : ""}</span>
-        <span className="mono list-summary-total">支出合計 {formatMoney(filteredSpend, project.baseCurrency, decimals)}</span>
-      </div>
-
-      <div className="receipt-list">
-        {sorted.map((e) => {
-          const showHeader = e.date !== lastDate;
-          lastDate = e.date;
-          const itemType = e.itemType || "expense";
-
-          if (itemType === "transfer") {
+          ))}
+          <button className={"filter-chip" + (onlyMine ? " on" : "")} onClick={() => setOnlyMine((v) => !v)}>
+            只看我的
+          </button>
+        </div>
+        <div className="filter-chip-row">
+          {CATEGORIES.map((c) => {
+            const active = categoryFilterSet.has(c.id);
             return (
-              <React.Fragment key={e.id}>
-                {showHeader && <div className="date-group-header">{e.date}</div>}
-                <div className="receipt-item">
-                  <div className="receipt-top">
-                    <Chip color="#9AA3AF">轉帳</Chip>
-                    {actionRow(e.id)}
-                  </div>
-                  <div className="receipt-mid">
-                    <div className="receipt-note">{e.note}</div>
-                    <div className="receipt-amount mono">{formatMoney(e.baseAmount, project.baseCurrency, decimals)}</div>
-                  </div>
-                  <div className="receipt-fx mono">
-                    {membersById[e.fromMemberId]?.name || "?"} → {membersById[e.toMemberId]?.name || "?"}
-                  </div>
-                  <div className="receipt-bottom">
-                    <span>{e.time}</span>
-                  </div>
-                </div>
-              </React.Fragment>
+              <button
+                key={c.id}
+                className={"filter-chip" + (active ? " on-cat" : "")}
+                style={active ? { "--cat-color": c.color } : undefined}
+                onClick={() => toggleCategoryFilter(c.id)}
+              >
+                {c.label}
+              </button>
             );
-          }
-
-          const cat = categoryOf(e.category);
-          const payers = e.payers || [];
-          const isCollection = itemType === "collection";
-          const myAmount = personalItemAmount(e, myId, decimals);
-          const payerVerb = isCollection ? "收款" : "付款";
-          // 單一付款人時金額就是總額，不必再重複一次數字
-          const payerText =
-            payers.length === 1
-              ? membersById[payers[0].memberId]?.name || "?"
-              : payers.map((p) => `${membersById[p.memberId]?.name || "?"} ${formatMoney(p.amount, e.currency, decimals)}`).join("・");
-
-          return (
-            <React.Fragment key={e.id}>
-              {showHeader && <div className="date-group-header">{e.date}</div>}
-              <div className="receipt-item">
-                <div className="receipt-top">
-                  <div style={{ display: "flex", gap: 6 }}>
-                    <Chip color={cat.color}>{cat.label}</Chip>
-                    {isCollection && <Chip color="var(--accent-2)">收入</Chip>}
-                  </div>
-                  {actionRow(e.id)}
-                </div>
-                <div className="receipt-mid">
-                  <div className="receipt-note">{e.note}</div>
-                  <div className="receipt-amount mono">{formatMoney(e.baseAmount, project.baseCurrency, decimals)}</div>
-                </div>
-                {e.currency !== project.baseCurrency && (
-                  <div className="receipt-fx mono">
-                    原始 {formatMoney(e.amount, e.currency)} · 匯率 {Number(e.exchangeRate ?? 1).toFixed(4)}
-                  </div>
-                )}
-                <div className="receipt-fx">
-                  {payerVerb}：<span className="mono">{payerText}</span>
-                </div>
-                {myAmount !== null && (
-                  <div className={"receipt-shares mono" + (myAmount < 0 ? " text-neg" : " text-pos")}>
-                    {membersById[myId]?.name || "你"}
-                    {isCollection ? " 分到 " : " 分攤 "}
-                    {formatMoney(Math.abs(myAmount), project.baseCurrency, decimals)}
-                  </div>
-                )}
-                <div className="receipt-bottom">
-                  <span>{e.time}</span>
-                  <span>
-                    {e.splitType === "equal" ? "均分" : e.splitType === "ratio" ? "比例" : "自訂"} · {(e.splitMemberIds || []).length} 人
-                  </span>
-                </div>
-              </div>
-            </React.Fragment>
-          );
-        })}
-        {sorted.length === 0 && (
-          <div className="empty-hint">{expenses.length === 0 ? "還沒有項目，新增第一筆吧" : "沒有符合條件的項目"}</div>
-        )}
+          })}
+          {hasFilter && (
+            <button className="filter-clear" onClick={clearFilters}>清除篩選</button>
+          )}
+        </div>
       </div>
+
+      <div className="band">
+        <span>
+          共 <span className="band-n">{sorted.length}</span> 筆{hasFilter ? `（全部 ${expenses.length}）` : ""}
+        </span>
+        <span className="band-side mono">
+          支出合計 {formatMoney(filteredSpend, project.baseCurrency, decimals)}
+        </span>
+      </div>
+
+      {groups.map((g) => (
+        <div key={g.date}>
+          <div className="band band-sticky band-day">
+            <span className="band-n">{g.date}</span>
+            <span className="band-side">{g.items.length} 筆</span>
+          </div>
+          <div className="item-group">{g.items.map(renderItem)}</div>
+        </div>
+      ))}
+
+      {sorted.length === 0 && (
+        <div className="empty-hint" style={{ marginTop: 14 }}>
+          {expenses.length === 0 ? "還沒有項目，按右下角的 ＋ 新增第一筆" : "沒有符合條件的項目"}
+        </div>
+      )}
     </div>
   );
 }

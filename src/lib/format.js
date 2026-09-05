@@ -67,3 +67,16 @@ export function formatTimestamp(ts) {
   const mm = String(d.getMinutes()).padStart(2, "0");
   return `${todayStr(d)} ${hh}:${mm}`;
 }
+
+/** 「剛剛 / 30 秒前 / 5 分前」——同步狀態用的相對時間。 */
+export function relativeTime(ts, now = Date.now()) {
+  if (!ts) return "尚未同步";
+  const sec = Math.max(0, Math.round((now - ts) / 1000));
+  if (sec < 10) return "剛剛同步";
+  if (sec < 60) return `${sec} 秒前同步`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min} 分前同步`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr} 小時前同步`;
+  return `${Math.round(hr / 24)} 天前同步`;
+}

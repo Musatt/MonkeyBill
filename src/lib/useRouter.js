@@ -37,6 +37,7 @@ export function parseHash(hash) {
 
   if (parts[2] === "settings") return { ...home, screen: "group", groupId, settings: true };
   if (parts[2] === "members") return { ...home, screen: "group", groupId, members: true };
+  if (parts[2] === "u" && parts[3]) return { ...home, screen: "user", groupId, userId: parts[3] };
   if (parts[2] === "p" && parts[3]) {
     const projectId = parts[3];
     const base = { ...home, screen: "project", groupId, projectId };
@@ -53,7 +54,9 @@ export function parseHash(hash) {
 
 export function buildHash(route) {
   const enc = encodeURIComponent;
-  if (route && route.screen === "user" && route.userId) return `#/u/${enc(route.userId)}`;
+  if (route && route.screen === "user" && route.userId) {
+    return route.groupId ? `#/g/${enc(route.groupId)}/u/${enc(route.userId)}` : `#/u/${enc(route.userId)}`;
+  }
   if (!route || route.screen === "home" || !route.groupId) return "#/";
   if (route.screen === "group") {
     if (route.settings) return `#/g/${enc(route.groupId)}/settings`;
@@ -79,7 +82,8 @@ export function buildHash(route) {
  */
 export function parentOf(route) {
   if (!route || route.screen === "home") return null;
-  if (route.screen === "user") return { screen: "home" };
+  // 從群組點進來的個人資料，上一階是那個群組；從首頁點自己的，上一階才是首頁
+  if (route.screen === "user") return route.groupId ? { screen: "group", groupId: route.groupId } : { screen: "home" };
   if (!route.groupId) return null;
   const { groupId, projectId } = route;
   if (route.screen === "group") return route.settings || route.members ? { screen: "group", groupId } : { screen: "home" };

@@ -100,7 +100,7 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
         停用後不會出現在新增項目的選人清單，但歷史紀錄與餘額都保留。
       </div>
 
-      <div className="section-label" style={{ marginTop: 14 }}>成員（{activeMembers.length}）</div>
+      <div className="band" style={{ marginTop: 14 }}><span>成員 <span className="band-n">{activeMembers.length}</span></span></div>
       <div className="member-order-list">
         {activeMembers.map(row)}
         {activeMembers.length === 0 && <div className="empty-hint">這個群組還沒有成員</div>}
@@ -108,12 +108,12 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
 
       {inactiveMembers.length > 0 && (
         <>
-          <div className="section-label" style={{ marginTop: 18 }}>已停用（{inactiveMembers.length}）</div>
+          <div className="band" style={{ marginTop: 18 }}><span>已停用 <span className="band-n">{inactiveMembers.length}</span></span></div>
           <div className="member-order-list">{inactiveMembers.map(row)}</div>
         </>
       )}
 
-      <div className="section-label" style={{ marginTop: 20 }}>加入成員</div>
+      <div className="band" style={{ marginTop: 20 }}><span>加入成員</span></div>
       {candidates.length > 0 && (
         <>
           <div className="hint-text">從現有帳號選：</div>

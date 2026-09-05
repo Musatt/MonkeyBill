@@ -1,11 +1,13 @@
 import React, { useState, useMemo } from "react";
+import { relativeTime } from "../lib/format.js";
 import { BackupPanel } from "./BackupPanel.jsx";
 
 /**
  * 首頁：只顯示自己有份的群組。
  * 建立群組時就可以從現有帳號挑成員。
  */
-export function Home({ me, groups, users, onOpenGroup, onCreateGroup, onLogout, onOpenProfile, data, onRestore, onRefresh }) {
+export function Home({ me, groups, users, lastSyncedAt, onOpenGroup, onCreateGroup, onLogout, onOpenProfile, data, onRestore, onRefresh }) {
+  const [menuOpen, setMenuOpen] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
@@ -48,21 +50,34 @@ export function Home({ me, groups, users, onOpenGroup, onCreateGroup, onLogout, 
 
   return (
     <div className="screen">
-      <div className="app-title-block">
-        <div>
-          <div className="app-title">分帳本</div>
-          <div className="app-sub">
-            你是 {me.name} · <button className="link-btn" onClick={onOpenProfile}>個人資料</button> ·{" "}
-            <button className="link-btn" onClick={onLogout}>登出</button>
+      <div className="hdr">
+        <div className="hdr-text">
+          <div className="hdr-name" style={{ fontSize: 24 }}>分帳本</div>
+          <div className="hdr-sub">
+            你是 {me.name} · {syncing ? "同步中…" : relativeTime(lastSyncedAt)}
           </div>
         </div>
-        <button className="edit-icon-btn" onClick={handleRefresh} disabled={syncing}>
-          {syncing ? "同步中…" : "🔄 同步"}
-        </button>
+        <div className="menu-wrap">
+          <button className="icon-btn" onClick={() => setMenuOpen((v) => !v)} aria-label="更多" aria-expanded={menuOpen}>
+            ⋯
+          </button>
+          {menuOpen && (
+            <>
+              <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
+              <div className="menu-pop" role="menu">
+                <button onClick={() => { setMenuOpen(false); handleRefresh(); }}>立即同步</button>
+                <button onClick={() => { setMenuOpen(false); onOpenProfile(); }}>個人資料</button>
+                <button onClick={() => { setMenuOpen(false); onLogout(); }}>登出</button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      <div className="section-label">我的群組</div>
-      <div className="list-stack">
+      <div className="band">
+        <span>我的群組 <span className="band-n">{groups.length}</span></span>
+      </div>
+      <div className="list-stack" style={{ marginTop: 10 }}>
         {groups.map((g) => {
           const activeCount = g.memberIds.filter((id) => !(g.inactiveMemberIds || []).includes(id)).length;
           const isAdmin = (g.adminIds || []).includes(me.id);

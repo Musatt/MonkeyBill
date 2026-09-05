@@ -63,7 +63,7 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
 
       {project.settlementMode === "one" && (
         <>
-          <div className="section-label">收發款人</div>
+          <div className="band" style={{ marginTop: 8 }}><span>收發款人</span></div>
           <select className="input" value={project.collectorId || ""} onChange={(e) => onModeChange("one", e.target.value)}>
             {project.memberIds.map((id) => (
               <option key={id} value={id}>{membersById[id]?.name || "?"}</option>
@@ -73,8 +73,11 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
         </>
       )}
 
-      <div className="section-label" style={{ marginTop: 16 }}>目前餘額</div>
-      <div className="balance-list">
+      <div className="band" style={{ marginTop: 8 }}>
+        <span>目前餘額</span>
+        <span className="band-side">結算取{decimals === 0 ? "整數" : `小數 ${decimals} 位`}</span>
+      </div>
+      <div className="balance-list" style={{ marginTop: 10 }}>
         {rowIds.map((id) => {
           const v = reconciled[id] || 0;
           const positive = v > 0.005;
@@ -100,8 +103,11 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
       </div>
       <div className="hint-text">正數＝別人該還他，負數＝他該還別人。</div>
 
-      <div className="section-label" style={{ marginTop: 16 }}>建議轉帳</div>
-      <div className="txn-list">
+      <div className="band" style={{ marginTop: 16 }}>
+        <span>建議轉帳</span>
+        <span className="band-side">{sortedTxns.length} 筆</span>
+      </div>
+      <div className="txn-list" style={{ marginTop: 10 }}>
         {sortedTxns.map((t, i) => {
           const involvesMe = t.from === myId || t.to === myId;
           return (

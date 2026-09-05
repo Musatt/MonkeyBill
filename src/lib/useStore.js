@@ -18,6 +18,8 @@ export function useStore() {
   const [reloadCount, setReloadCount] = useState(0);
   // status: 'idle' | 'saving' | 'error'
   const [saveState, setSaveState] = useState({ status: "idle", error: null, pending: 0 });
+  // 最後一次真的跟雲端對上的時間。自動輪詢、切回分頁、寫入成功都算。
+  const [lastSyncedAt, setLastSyncedAt] = useState(null);
 
   const pendingRef = useRef([]); // 尚未成功寫入雲端的 diff
   const chainRef = useRef(Promise.resolve());
@@ -40,6 +42,7 @@ export function useStore() {
         // 走到這裡代表讀取成功（失敗會 throw）。所以「空的」就是真的空的，
         // 直接顯示空畫面讓使用者自己建身分與群組，不寫入任何範例資料。
         setBoth(remote && remote.groups ? migrate(remote) : emptyData());
+        setLastSyncedAt(Date.now());
       } catch (e) {
         if (!cancelled) setErr(e.message || String(e));
       } finally {
@@ -64,6 +67,7 @@ export function useStore() {
         merged = job.replace ? job.data : applyDiff(merged, job.diff);
       }
       await supabaseSet(merged);
+      setLastSyncedAt(Date.now());
       pendingRef.current = pendingRef.current.slice(batchSize);
       if (pendingRef.current.length === 0) {
         // 沒有更新的本地修改在排隊，才把合併結果（含別人的新紀錄）套回畫面
@@ -116,6 +120,7 @@ export function useStore() {
     }
     try {
       const fresh = await supabaseGet();
+      setLastSyncedAt(Date.now());
       if (fresh && fresh.groups && pendingRef.current.length === 0) {
         setBoth(migrate(fresh));
       }
@@ -138,5 +143,5 @@ export function useStore() {
 
   const retry = useCallback(() => setReloadCount((c) => c + 1), []);
 
-  return { data, loading, err, persist, retry, refresh, saveState, retrySave };
+  return { data, loading, err, persist, retry, refresh, saveState, retrySave, lastSyncedAt };
 }

@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { todayStr } from "../lib/format.js";
+import { todayStr, relativeTime } from "../lib/format.js";
 import { isProjectSettled } from "../lib/money.js";
 import { isPickable } from "../lib/permissions.js";
 import { DatePickerBox, CurrencySelect } from "./primitives.jsx";
@@ -11,6 +11,7 @@ export function GroupPage({
   expenses,
   myId,
   isAdmin,
+  lastSyncedAt,
   onBack,
   onOpenProject,
   onCreateProject,
@@ -18,10 +19,14 @@ export function GroupPage({
   onOpenSettings,
   onOpenMembers,
   onShare,
+  onRefresh,
 }) {
   const admins = new Set(group.adminIds || []);
   const activeMembers = group.memberIds.map((id) => users[id]).filter((u) => isPickable(u, group));
 
+  const [menuOpen, setMenuOpen] = useState(false);
+  const [membersOpen, setMembersOpen] = useState(false); // 預設收合，人多時才不會佔滿畫面
+  const [syncing, setSyncing] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [pname, setPname] = useState("");
   const [pdesc, setPdesc] = useState("");
@@ -38,44 +43,83 @@ export function GroupPage({
       return next;
     });
 
+  const handleRefresh = async () => {
+    setSyncing(true);
+    setMenuOpen(false);
+    try {
+      await onRefresh();
+    } finally {
+      setSyncing(false);
+    }
+  };
+
   const sortedProjects = [...projects].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
+  const unsettled = sortedProjects.filter((p) => !isProjectSettled(p, expenses.filter((e) => e.projectId === p.id))).length;
 
   return (
-    <div className="screen">
-      <div className="topbar">
-        <button className="backbtn" onClick={onBack} aria-label="返回">‹</button>
-        <div className="topbar-text">
-          <div className="topbar-title">{group.name}</div>
-          {group.description && <div className="topbar-sub">{group.description}</div>}
-          <div className="topbar-sub">
+    <div>
+      <div className="hdr">
+        <button className="icon-btn backbtn" onClick={onBack} aria-label="返回">‹</button>
+        <div className="hdr-text">
+          <div className="hdr-name">{group.name}</div>
+          <div className="hdr-sub">
             你是 {users[myId]?.name || "?"}
-            {isAdmin && <span className="admin-tag">管理者</span>}
+            {isAdmin && " · 管理者"} · {syncing ? "同步中…" : relativeTime(lastSyncedAt)}
           </div>
         </div>
-      </div>
-      <div className="topbar-actions">
-        <button className="edit-icon-btn" onClick={onShare}>🔗 分享</button>
-        {isAdmin && <button className="edit-icon-btn" onClick={onOpenMembers}>管理成員</button>}
-        {isAdmin && <button className="edit-icon-btn" onClick={onOpenSettings}>編輯</button>}
-      </div>
-
-      <div className="section-label">成員（{activeMembers.length}）</div>
-      <div className="member-chip-row">
-        {activeMembers.map((m) => (
-          <button
-            key={m.id}
-            className={"member-tag selectable" + (m.id === myId ? " member-tag-me" : "")}
-            onClick={() => onOpenMember(m.id)}
-          >
-            {m.name}
-            {admins.has(m.id) && <span className="admin-dot" title="管理者">•</span>}
+        <div className="menu-wrap">
+          <button className="icon-btn" onClick={() => setMenuOpen((v) => !v)} aria-label="更多" aria-expanded={menuOpen}>
+            ⋯
           </button>
-        ))}
+          {menuOpen && (
+            <>
+              <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
+              <div className="menu-pop" role="menu">
+                <button onClick={handleRefresh}>立即同步</button>
+                <button onClick={() => { setMenuOpen(false); onShare(); }}>分享群組</button>
+                {isAdmin && <button onClick={() => { setMenuOpen(false); onOpenMembers(); }}>管理成員</button>}
+                {isAdmin && <button onClick={() => { setMenuOpen(false); onOpenSettings(); }}>編輯群組</button>}
+              </div>
+            </>
+          )}
+        </div>
       </div>
-      {!isAdmin && <div className="hint-text">要增減成員請找群組管理者。</div>}
 
-      <div className="section-label" style={{ marginTop: 20 }}>專案</div>
-      <div className="list-stack">
+      {/* 成員：預設收合，標題帶右邊直接放管理成員 */}
+      <div className="band">
+        <button className="band-btn band-toggle" onClick={() => setMembersOpen((v) => !v)} aria-expanded={membersOpen}>
+          <span className={"caret" + (membersOpen ? " caret-open" : "")}>›</span>
+          成員 <span className="band-n">{activeMembers.length}</span>
+        </button>
+        {isAdmin ? (
+          <button className="band-btn" onClick={onOpenMembers}>管理成員</button>
+        ) : (
+          <span className="band-side">管理者 {admins.size} 位</span>
+        )}
+      </div>
+      {membersOpen && (
+        <div className="member-chip-row" style={{ padding: "10px 0 2px" }}>
+          {activeMembers.map((m) => (
+            <button
+              key={m.id}
+              className={"member-tag selectable" + (m.id === myId ? " member-tag-me" : "")}
+              onClick={() => onOpenMember(m.id)}
+            >
+              {m.name}
+              {admins.has(m.id) && <span className="admin-dot" title="管理者">•</span>}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <div className="band" style={{ marginTop: 14 }}>
+        <span>
+          專案 <span className="band-n">{projects.length}</span>
+        </span>
+        {unsettled > 0 && <span className="band-side">{unsettled} 個未結清</span>}
+      </div>
+
+      <div className="list-stack" style={{ marginTop: 10 }}>
         {sortedProjects.map((p) => {
           const projectExpenses = expenses.filter((e) => e.projectId === p.id);
           const settled = isProjectSettled(p, projectExpenses);
@@ -88,8 +132,11 @@ export function GroupPage({
               </div>
               {p.description && <div className="card-desc">{p.description}</div>}
               <div className="project-card-meta">
-                {p.date || "—"} · {p.memberIds.length} 人 · {projectExpenses.length} 筆 · 主幣別 {p.baseCurrency}
-                {!inProject && <span className="hint-text"> · 你不在這個專案</span>}
+                <span className="mono">{p.date || "—"}</span>
+                <span>{p.memberIds.length} 人</span>
+                <span>{projectExpenses.length} 筆</span>
+                <span className="mono">{p.baseCurrency}</span>
+                {!inProject && <span className="tag-out">你不在這個專案</span>}
               </div>
             </button>
           );

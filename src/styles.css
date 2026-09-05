@@ -13,11 +13,22 @@
   --positive: #4CAF7D;
   --radius: 14px;
   --tap: 44px; /* 手指最小可靠點擊尺寸 */
+  --tabbar-h: 48px; /* 置頂頁籤的高度，日期帶要黏在它下面 */
   /* iPhone 瀏海／狀態列／home indicator 的安全區。抽成變數方便測試時模擬。 */
   --sa-top: env(safe-area-inset-top, 0px);
   --sa-right: env(safe-area-inset-right, 0px);
   --sa-bottom: env(safe-area-inset-bottom, 0px);
   --sa-left: env(safe-area-inset-left, 0px);
+  /* ── 字級：檢視模式刻意壓小，輸入框才維持 16px（iOS 不放大） ── */
+  --fs-title: 17px;   /* 畫面標題 */
+  --fs-lead: 15px;    /* 主要內容，例如項目說明 */
+  --fs-amount: 19px;  /* 金額，畫面上最醒目的數字 */
+  --fs-body: 13px;    /* 一般說明 */
+  --fs-meta: 11px;    /* 次要資訊 */
+  --fs-micro: 10px;   /* 第三層，時間、分帳方式 */
+  --fs-band: 10.5px;  /* 區塊標題帶 */
+  --fs-input: 16px;   /* 只給輸入框，不要調低 */
+
   --caret: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'><path d='M1 1.5 6 6.5 11 1.5' fill='none' stroke='%239aa3af' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>");
 }
 
@@ -229,8 +240,8 @@ select.input {
 .receipt-shares { font-size: 12px; margin-top: 6px; line-height: 1.6; }
 .receipt-bottom { display: flex; justify-content: space-between; color: var(--text-dim); font-size: 12px; margin-top: 8px; gap: 8px; }
 
-.tabbar { display: flex; border-bottom: 1px solid var(--border); margin-bottom: 16px; }
-.tab { flex: 1; background: none; border: none; color: var(--text-dim); padding: 13px 4px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; font-family: inherit; min-height: var(--tap); }
+.tabbar { display: flex; height: var(--tabbar-h); border-bottom: 1px solid var(--border); }
+.tab { flex: 1; background: none; border: none; color: var(--text-dim); padding: 0 4px; font-size: 13px; cursor: pointer; border-bottom: 2px solid transparent; font-family: inherit; height: 100%; }
 .tab-on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
 
 .balance-list, .txn-list, .stat-bars { display: flex; flex-direction: column; gap: 8px; }
@@ -391,3 +402,221 @@ select.input {
   font-size: 12px; color: var(--accent); font-weight: 700; letter-spacing: 0.06em;
   margin: 0 0 6px 2px;
 }
+
+/* ═══════════════════════════════════════════════
+   區塊分層：用「標題帶」把畫面切成看得出來的區域
+   ═══════════════════════════════════════════════ */
+
+/* 實色標題帶，取代原本只有小字的 .section-label。
+   捲動時可以黏在頂端（.band-sticky），是 C 版式的核心。 */
+.band {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 7px 16px; margin: 0 -16px;
+  background: var(--surface-2); border-top: 1px solid var(--border); border-bottom: 1px solid var(--border);
+  font-size: var(--fs-band); font-weight: 700; letter-spacing: 0.1em; color: var(--text-dim);
+}
+.band-sticky { position: sticky; top: var(--stick-top, 0px); z-index: 12; }
+.band-strong { color: var(--text); }
+.band .band-n { font-family: 'IBM Plex Mono', monospace; color: var(--text); letter-spacing: 0; }
+.band .band-side { font-weight: 500; letter-spacing: 0; color: var(--text-dim); }
+.band-btn {
+  background: none; border: none; padding: 0; cursor: pointer; font-family: inherit;
+  font-size: var(--fs-meta); font-weight: 700; color: var(--accent); letter-spacing: 0;
+}
+
+/* 頂部：一行半 + ⋯ 選單 */
+.hdr { display: flex; align-items: center; gap: 10px; padding: 2px 0 10px; }
+.hdr-text { flex: 1; min-width: 0; }
+.hdr-name {
+  font-family: 'Space Grotesk', sans-serif; font-weight: 700; font-size: var(--fs-title);
+  letter-spacing: -0.01em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.hdr-sub {
+  color: var(--text-dim); font-size: var(--fs-meta); margin-top: 1px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.icon-btn {
+  width: 36px; height: 36px; flex-shrink: 0; border-radius: 10px; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  display: grid; place-items: center; font-size: 17px; line-height: 1; font-family: inherit;
+}
+.icon-btn.backbtn { width: 36px; height: 36px; font-size: 19px; }
+
+/* ⋯ 下拉選單 */
+.menu-wrap { position: relative; flex-shrink: 0; }
+.menu-pop {
+  position: absolute; right: 0; top: 42px; z-index: 40; min-width: 168px;
+  background: var(--surface); border: 1px solid var(--border); border-radius: 12px;
+  box-shadow: 0 10px 28px rgba(0,0,0,.5); overflow: hidden;
+}
+.menu-pop button {
+  display: block; width: 100%; text-align: left; padding: 12px 14px; cursor: pointer;
+  background: none; border: none; border-bottom: 1px solid var(--border);
+  color: var(--text); font-family: inherit; font-size: var(--fs-body);
+}
+.menu-pop button:last-child { border-bottom: none; }
+.menu-pop button:hover, .menu-pop button:focus-visible { background: var(--surface-2); }
+.menu-backdrop { position: fixed; inset: 0; z-index: 35; }
+
+/* 頁籤置頂 */
+.tabbar-sticky { position: sticky; top: var(--sa-top); z-index: 20; background: var(--bg); margin: 0 -16px; padding: 0 16px; }
+
+/* 浮動新增鈕 */
+.fab {
+  position: fixed; right: max(18px, calc(50vw - 240px + 18px));
+  bottom: calc(20px + var(--sa-bottom)); z-index: 30;
+  width: 54px; height: 54px; border-radius: 50%; cursor: pointer;
+  background: var(--accent); color: var(--on-accent); border: none;
+  font-size: 28px; font-weight: 300; line-height: 1; font-family: inherit;
+  box-shadow: 0 6px 20px rgba(0,0,0,.55);
+  display: grid; place-items: center;
+}
+.fab:active { transform: scale(0.94); }
+
+/* ═══════════════════════════════════════════════
+   項目清單（C 分層）
+   ═══════════════════════════════════════════════ */
+
+.filter-block { padding: 10px 0 12px; display: flex; flex-direction: column; gap: 8px; }
+.input-search { min-height: 40px; padding: 9px 12px; font-size: var(--fs-input); }
+
+/* 日期帶黏在置頂頁籤的正下方 */
+.band-day { top: calc(var(--sa-top) + var(--tabbar-h)); }
+
+.item-group { display: flex; flex-direction: column; }
+
+.item {
+  display: flex; flex-direction: column; gap: 3px;
+  padding: 11px 0 12px; border-bottom: 1px solid var(--border);
+}
+
+/* 第一行：類型 → 分類 → 操作。刻意壓小，不跟說明搶注意力 */
+.item-row1 { display: flex; align-items: center; gap: 6px; font-size: 9.5px; }
+/* 類型標籤：方角，跟圓角的分類一眼分得開 */
+.kind { border-radius: 3px; border: 1px solid; padding: 2px 6px; font-weight: 700; flex-shrink: 0; }
+.kind-expense { color: var(--accent); border-color: var(--accent); background: color-mix(in srgb, var(--accent) 16%, transparent); }
+.kind-collection { color: var(--positive); border-color: var(--positive); background: color-mix(in srgb, var(--positive) 16%, transparent); }
+.kind-transfer { color: var(--text-dim); border-color: var(--border); background: var(--surface-2); }
+/* 分類標籤：圓角 */
+.cat {
+  border-radius: 999px; padding: 2px 8px; font-weight: 700; flex-shrink: 0;
+  color: var(--cat-color); border: 1px solid color-mix(in srgb, var(--cat-color) 45%, transparent);
+  background: color-mix(in srgb, var(--cat-color) 13%, transparent);
+}
+.item-acts { margin-left: auto; display: flex; gap: 12px; flex-shrink: 0; }
+.act {
+  background: none; border: none; padding: 4px 0; cursor: pointer; font-family: inherit;
+  font-size: var(--fs-meta); color: var(--text-dim);
+}
+.act-danger { color: var(--accent); }
+.act-muted { opacity: 0.35; cursor: not-allowed; }
+.act-confirm { color: var(--accent); font-weight: 700; }
+
+/* 第二行：說明 + 金額。金額是畫面上最大的數字 */
+.item-row2 { display: flex; align-items: baseline; gap: 10px; margin-top: 2px; }
+.item-desc {
+  flex: 1; min-width: 0; font-size: var(--fs-lead); font-weight: 500;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+.item-amt {
+  flex-shrink: 0; font-size: var(--fs-amount); font-weight: 700; letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+.amt-expense { color: var(--accent); }
+.amt-collection { color: var(--positive); }
+.amt-transfer { color: var(--text-dim); }
+
+/* 第三行：你分攤 / 你分到，跟著收支上色 */
+.item-mine { font-size: var(--fs-meta); font-variant-numeric: tabular-nums; }
+
+/* 第四行：時間 · 付款人 · 分帳方式 */
+.item-meta {
+  display: flex; align-items: baseline; gap: 8px; margin-top: 3px;
+  font-size: var(--fs-micro); color: var(--text-dim); opacity: 0.75;
+}
+.meta-time { flex-shrink: 0; font-variant-numeric: tabular-nums; }
+.meta-who { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.meta-split { flex-shrink: 0; }
+.item-fx { font-size: var(--fs-micro); color: var(--text-dim); opacity: 0.6; margin-top: 2px; }
+
+/* 分類篩選被選中時用該分類的顏色 */
+.filter-chip.on-cat {
+  color: var(--cat-color); font-weight: 700;
+  border-color: color-mix(in srgb, var(--cat-color) 55%, transparent);
+  background: color-mix(in srgb, var(--cat-color) 15%, transparent);
+}
+
+.toast {
+  position: fixed; left: 50%; transform: translateX(-50%);
+  bottom: calc(24px + var(--sa-bottom)); z-index: 60;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text);
+  padding: 10px 16px; border-radius: 999px; font-size: var(--fs-body);
+  box-shadow: 0 6px 20px rgba(0,0,0,.5);
+}
+
+/* 群組頁：成員收合的箭頭 */
+.band-toggle { display: inline-flex; align-items: center; gap: 6px; letter-spacing: 0.1em; color: var(--text-dim); }
+.caret { display: inline-block; transition: transform 140ms ease; font-size: 13px; color: var(--accent); }
+.caret-open { transform: rotate(90deg); }
+@media (prefers-reduced-motion: reduce) { .caret { transition: none; } }
+
+/* 專案卡片的資訊列改成分欄，不要一長串點點 */
+.project-card-meta { display: flex; flex-wrap: wrap; gap: 10px; align-items: baseline; font-size: var(--fs-micro); }
+.tag-out { color: var(--accent-2); }
+.group-card-meta { font-size: var(--fs-meta); }
+
+/* ═══════════════════════════════════════════════
+   字級層次統一：檢視模式壓小，輸入框維持 16px
+   同一列裡「是什麼」用小字灰色，「是多少」用大字實色
+   ═══════════════════════════════════════════════ */
+
+.mono { font-variant-numeric: tabular-nums; }
+
+/* 舊的 section-label 保留給表單欄位標題，但壓小、跟 band 區隔 */
+.section-label { font-size: var(--fs-micro); margin: 12px 0 4px; }
+
+.hint-text { font-size: var(--fs-meta); line-height: 1.6; }
+
+/* 餘額／轉帳／明細列：名字是次要，金額是主要 */
+.balance-row, .txn-row, .detail-row, .toggle-row {
+  font-size: var(--fs-body); padding: 10px 12px;
+}
+.balance-row > span:first-child, .txn-row > span:first-child { color: var(--text-dim); }
+.balance-row .mono { font-size: var(--fs-lead); font-weight: 700; color: var(--text); }
+.balance-row .mono.text-pos { color: var(--positive); }
+.balance-row .mono.text-neg { color: var(--accent); }
+.txn-amount { font-size: var(--fs-lead); font-weight: 700; }
+.detail-label { font-size: var(--fs-meta); }
+.detail-row .mono { font-size: var(--fs-body); }
+
+.group-card-name, .project-card-name { font-size: var(--fs-lead); }
+.card-desc { font-size: var(--fs-meta); }
+.member-tag { font-size: var(--fs-body); padding: 8px 12px; min-height: 36px; }
+.member-pick { font-size: var(--fs-body); padding: 12px 8px; }
+.related-item-note { font-size: var(--fs-body); }
+.related-item-amount { font-size: var(--fs-body); }
+.related-item-meta { font-size: var(--fs-micro); }
+.member-order-name { font-size: var(--fs-body); }
+.empty-hint { font-size: var(--fs-meta); }
+.settle-badge { font-size: var(--fs-micro); }
+.chip { font-size: var(--fs-micro); }
+
+/* 統計數字：主角要夠大，標籤要夠小，對比才出得來 */
+.stat-hero { padding: 16px; }
+.stat-hero-label { font-size: var(--fs-micro); }
+.stat-hero-value { font-size: 26px; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
+.mini-card-label { font-size: var(--fs-micro); }
+.mini-card-value { font-size: var(--fs-lead); font-variant-numeric: tabular-nums; }
+.stat-bar-value { font-size: var(--fs-meta); font-variant-numeric: tabular-nums; }
+.stat-bar-pct { font-size: var(--fs-micro); }
+
+/* 按鈕：檢視模式的次要按鈕不用那麼大 */
+.btn-outline, .btn-ghost { font-size: var(--fs-body); }
+.mode-switch button { font-size: var(--fs-body); }
+.mode-switch-3 button { font-size: var(--fs-meta); }
+.filter-chip { font-size: var(--fs-meta); padding: 7px 11px; min-height: 32px; }
+.link-btn { font-size: var(--fs-meta); }
+.edit-icon-btn { font-size: var(--fs-meta); }
+
+/* 輸入類一律維持 16px，iOS 才不會自動放大 */
+.input, .input.small, .picker-box select, select.input { font-size: var(--fs-input); }

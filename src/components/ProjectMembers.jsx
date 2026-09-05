@@ -92,7 +92,7 @@ export function ProjectMembers({ group, users, project, onToggle, onReorder }) {
 
   return (
     <div className="screen">
-      <div className="section-label">參加成員（{joined.length}）</div>
+      <div className="band"><span>參加成員 <span className="band-n">{joined.length}</span></span></div>
       <div className="hint-text" style={{ marginBottom: 8 }}>
         按住 ⠿ 拖曳可以調整順序，新增項目時選人的順序會跟這裡一樣。
       </div>
@@ -141,7 +141,7 @@ export function ProjectMembers({ group, users, project, onToggle, onReorder }) {
 
       {others.length > 0 && (
         <>
-          <div className="section-label" style={{ marginTop: 20 }}>未參加（{others.length}）</div>
+          <div className="band" style={{ marginTop: 18 }}><span>未參加 <span className="band-n">{others.length}</span></span></div>
           <div className="member-order-list">
             {others.map((m) => (
               <div key={m.id} className="member-order-row member-order-row-off">

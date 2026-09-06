@@ -20,7 +20,7 @@ export function GroupEditScreen({ group, projectCount, expenseCount, canDelete, 
       <div className="section-label" style={{ marginTop: 12 }}>說明（選填）</div>
       <textarea className="input textarea" value={gdesc} onChange={(e) => setGdesc(e.target.value)} placeholder="這個群組是做什麼用的" />
 
-      <div className="section-label" style={{ marginTop: 24 }}>刪除群組</div>
+      <div className="sec-head">刪除群組</div>
       {!canDelete ? (
         <div className="hint-text">只有群組管理者可以刪除群組。</div>
       ) : !confirmingDelete ? (

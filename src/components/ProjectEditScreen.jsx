@@ -38,7 +38,7 @@ export function ProjectEditScreen({ project, expenseCount, canDelete, onBack, on
       </div>
       <div className="hint-text">這個專案裡所有 {project.baseCurrency} 金額都會用這個位數顯示與結算。</div>
 
-      <div className="section-label" style={{ marginTop: 24 }}>刪除專案</div>
+      <div className="sec-head">刪除專案</div>
       {!canDelete ? (
         <div className="hint-text">只有群組管理者可以刪除專案。</div>
       ) : !confirming ? (

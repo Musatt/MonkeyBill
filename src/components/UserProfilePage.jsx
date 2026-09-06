@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from "react";
-import { BACKSTAGE_NAME } from "../constants.js";
 import { hashPassword } from "../lib/auth.js";
+import { nameError, normalizeName } from "../lib/names.js";
+import { isVirtual, canEditIdentity as canEditIdentityOf } from "../lib/permissions.js";
 import { formatSigned, projectDecimals } from "../lib/format.js";
 import { computeBalances, reconcileBalances } from "../lib/money.js";
 import { TopBar } from "./primitives.jsx";
@@ -10,9 +11,12 @@ import { TopBar } from "./primitives.jsx";
  * 暱稱與密碼只有本人（或後臺）能改；聯絡與收款資料開放給同群組的人填，
  * 因為常常是「我知道他的帳號，幫他補上去」。
  */
-export function UserProfilePage({ user, data, viewerId, backstage, visibleGroups, onBack, onUpdate, onSetPassword }) {
+export function UserProfilePage({ user, data, viewerId, backstage, visibleGroups, currentGroup, onBack, onUpdate, onSetPassword }) {
   const isSelf = user.id === viewerId;
-  const canEditIdentity = isSelf || backstage;
+  const virtual = isVirtual(user);
+  // 虛擬成員沒有「本人」，由所屬群組的管理者代管暱稱
+  const ownerGroup = virtual ? data.groups[user.ownerGroupId] || currentGroup : currentGroup;
+  const canEditIdentity = canEditIdentityOf(user, viewerId, ownerGroup, backstage);
 
   const [editing, setEditing] = useState(false);
   const [name, setName] = useState(user.name);
@@ -35,10 +39,9 @@ export function UserProfilePage({ user, data, viewerId, backstage, visibleGroups
     setEditing(true);
   };
 
-  const trimmed = name.trim();
-  const nameTaken = Object.values(data.users).some((u) => u.id !== user.id && u.name === trimmed);
-  const isReserved = trimmed === BACKSTAGE_NAME;
-  const nameError = !trimmed ? "請輸入暱稱" : nameTaken ? "已經有人用這個暱稱了" : isReserved ? "這是保留名稱，不能用" : "";
+  // 改名會全系統一起改：帳目存的是 id 不是名字，所以每一筆歷史帳都會跟著顯示新名字
+  const trimmed = normalizeName(name);
+  const nameProblem = nameError(name, data.users, user.id);
 
   // 這個人在「我看得到的群組」裡還沒結清的專案
   const projectBalances = useMemo(() => {
@@ -83,18 +86,31 @@ export function UserProfilePage({ user, data, viewerId, backstage, visibleGroups
 
   return (
     <div className="screen">
-      <TopBar title={user.name} subtitle={isSelf ? "你的個人資料" : "成員資料"} onBack={onBack} />
+      <TopBar
+        title={user.name}
+        subtitle={isSelf ? "你的個人資料" : virtual ? "虛擬成員（不能登入）" : "成員資料"}
+        onBack={onBack}
+      />
 
       {editing ? (
         <div className="card">
           {canEditIdentity ? (
             <>
-              <div className="section-label">暱稱（也是登入用的帳號）</div>
+              <div className="sec-head sec-head-tight">
+                {virtual ? "暱稱" : "暱稱（也是登入用的帳號）"}
+              </div>
               <input className="input" value={name} onChange={(e) => setName(e.target.value)} />
-              {nameError && <div className="hint-text hint-warn">{nameError}</div>}
+              {nameProblem && <div className="hint-text hint-warn">{nameProblem}</div>}
+              <div className="hint-text">
+                改了之後，系統裡每一個出現他名字的地方都會一起改（包含所有歷史帳目）。
+                暱稱全系統唯一，不能跟別人重複。
+              </div>
             </>
           ) : (
-            <div className="hint-text">暱稱只有本人能改。你可以幫他補聯絡與收款資料。</div>
+            <div className="hint-text">
+              {virtual ? "虛擬成員的暱稱由群組管理者修改。" : "暱稱只有本人能改。"}
+              你可以幫他補聯絡與收款資料。
+            </div>
           )}
           <div className="section-label" style={{ marginTop: 12 }}>聯絡電話</div>
           <input className="input" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="09xx-xxx-xxx" inputMode="tel" />
@@ -114,7 +130,7 @@ export function UserProfilePage({ user, data, viewerId, backstage, visibleGroups
             <button className="btn-ghost" onClick={() => setEditing(false)}>取消</button>
             <button
               className="btn-accent"
-              disabled={canEditIdentity && !!nameError}
+              disabled={canEditIdentity && !!nameProblem}
               onClick={() => {
                 onUpdate(user.id, {
                   ...(canEditIdentity ? { name: trimmed } : {}),
@@ -152,9 +168,10 @@ export function UserProfilePage({ user, data, viewerId, backstage, visibleGroups
           </div>
           <button className="btn-outline full-width" style={{ marginTop: 16 }} onClick={startEdit}>編輯資料</button>
 
-          {canEditIdentity && (
+          {/* 虛擬成員不能登入，密碼對他沒有意義，整段不顯示 */}
+          {canEditIdentity && !virtual && (
             <>
-              <div className="section-label" style={{ marginTop: 20 }}>登入密碼</div>
+              <div className="sec-head">登入密碼</div>
               {!pwOpen ? (
                 <div className="detail-row">
                   <span className="detail-label">{user.passwordHash ? "已設定密碼" : "沒有設密碼"}</span>
@@ -185,7 +202,7 @@ export function UserProfilePage({ user, data, viewerId, backstage, visibleGroups
             </>
           )}
 
-          <div className="section-label" style={{ marginTop: 20 }}>未結清的專案</div>
+          <div className="sec-head">未結清的專案</div>
           {projectBalances.length === 0 ? (
             <div className="empty-hint">目前沒有未結清的專案</div>
           ) : (

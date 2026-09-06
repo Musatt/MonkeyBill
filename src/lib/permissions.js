@@ -6,6 +6,49 @@
  * 後臺管理：等同所有群組的管理者。
  */
 
+/**
+ * 虛擬成員：只存在於某一個群組裡、不能登入的人。
+ *
+ * 為什麼需要：沒設密碼的身分，任何打開網站的人都能在登入頁選走。
+ * 如果一個私密群組裡放了幾個「只是要記帳、本人根本不會用這個網站」的人，
+ * 那些身分就變成別人進來看這個群組的門。虛擬成員從登入頁整個消失，堵住這個洞。
+ *
+ * 實作上它仍然是一筆 users 記錄，只是多了 virtual 旗標——
+ * 因為所有帳目都用 user id 指向人（付款人、分攤、轉帳、結算、統計），
+ * 另外開一張表會讓每一處都要多判斷一次。
+ */
+export function isVirtual(user) {
+  return !!(user && user.virtual);
+}
+
+/** 能不能出現在登入頁被選。虛擬成員永遠不行，這是它存在的意義。 */
+export function canLogin(user) {
+  return !!user && !user.disabled && !isVirtual(user);
+}
+
+/** 虛擬成員只屬於自己那個群組，別的群組不能把他加進來。 */
+export function canJoinGroup(user, groupId) {
+  if (!isVirtual(user)) return true;
+  return user.ownerGroupId === groupId;
+}
+
+/**
+ * 誰能改這個人的暱稱與密碼。
+ * 一般帳號只有本人；虛擬成員沒有「本人」，由所屬群組的管理者代管。
+ */
+export function canEditIdentity(user, viewerId, group, backstage) {
+  if (backstage) return true;
+  if (isVirtual(user)) return isGroupAdmin(group, viewerId, false);
+  return !!user && user.id === viewerId;
+}
+
+/** 把虛擬成員轉成正式帳號：所屬群組的管理者就可以做，反正本來就是他建的。 */
+export function canPromoteToReal(user, viewerId, group, backstage) {
+  if (!isVirtual(user)) return false;
+  if (backstage) return true;
+  return !!group && group.id === user.ownerGroupId && isGroupAdmin(group, viewerId, false);
+}
+
 export function isGroupMember(group, userId) {
   return !!group && !!userId && group.memberIds.includes(userId);
 }

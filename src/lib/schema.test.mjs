@@ -1,5 +1,12 @@
 /* 資料遷移與權限的回歸測試： node src/lib/schema.test.mjs */
-import { migrate, pruneOrphans, memberIdsUsedByExpense, hasRecordsInGroup, SCHEMA_VERSION } from "./schema.js";
+import {
+  migrate,
+  pruneOrphans,
+  memberIdsUsedByExpense,
+  hasRecordsInGroup,
+  demoteToVirtualCheck,
+  SCHEMA_VERSION,
+} from "./schema.js";
 import {
   isGroupAdmin,
   canDeleteGroup,
@@ -8,6 +15,11 @@ import {
   canEditExpense,
   canAddExpense,
   isPickable,
+  isVirtual,
+  canLogin,
+  canJoinGroup,
+  canEditIdentity,
+  canPromoteToReal,
 } from "./permissions.js";
 
 let pass = 0;
@@ -131,6 +143,81 @@ console.log("\n[停用的人不出現在選單，但資料還在]");
   check("群組內停用不可選", !isPickable({ id: "c", disabled: false }, group));
   check("後臺全域停用不可選", !isPickable({ id: "b", disabled: true }, group));
   check("停用不影響 memberIds（餘額照算）", group.memberIds.includes("c"));
+}
+
+console.log("\n[虛擬成員：不能登入，只屬於自己的群組]");
+{
+  const real = { id: "r1", name: "猴子", disabled: false };
+  const noPw = { id: "r2", name: "小比", disabled: false };
+  const ghost = { id: "v1", name: "阿明", disabled: false, virtual: true, ownerGroupId: "g1" };
+  const g1 = { id: "g1", memberIds: ["r1", "v1"], adminIds: ["r1"], inactiveMemberIds: [] };
+  const g2 = { id: "g2", memberIds: ["r2"], adminIds: ["r2"], inactiveMemberIds: [] };
+
+  check("正式帳號可以登入", canLogin(real));
+  check("沒設密碼的正式帳號一樣出現在登入頁（這正是要防的洞）", canLogin(noPw));
+  check("虛擬成員不能登入", !canLogin(ghost));
+  check("被停用的帳號不能登入", !canLogin({ ...real, disabled: true }));
+  check("isVirtual 認得出來", isVirtual(ghost) && !isVirtual(real));
+
+  check("虛擬成員可以留在自己的群組", canJoinGroup(ghost, "g1"));
+  check("虛擬成員不能被加進別的群組", !canJoinGroup(ghost, "g2"));
+  check("正式帳號哪個群組都能加", canJoinGroup(real, "g2"));
+
+  check("虛擬成員照樣可以被選來分帳", isPickable(ghost, g1));
+  check("虛擬成員被群組停用後就不可選", !isPickable(ghost, { ...g1, inactiveMemberIds: ["v1"] }));
+
+  check("本人能改自己的暱稱", canEditIdentity(real, "r1", g1, false));
+  check("別人不能改我的暱稱", !canEditIdentity(real, "r2", g1, false));
+  check("虛擬成員的暱稱由所屬群組管理者改", canEditIdentity(ghost, "r1", g1, false));
+  check("非管理者不能改虛擬成員的暱稱", !canEditIdentity(ghost, "r2", g1, false));
+  check("後臺什麼都能改", canEditIdentity(ghost, null, g2, true));
+
+  check("所屬群組的管理者可以把虛擬成員轉正", canPromoteToReal(ghost, "r1", g1, false));
+  check("別的群組的管理者不行", !canPromoteToReal(ghost, "r2", g2, false));
+  check("正式帳號沒有「轉正」這件事", !canPromoteToReal(real, "r1", g1, false));
+}
+
+console.log("\n[正式帳號降成虛擬成員：只有剛好在一個群組時才行]");
+{
+  const base = {
+    users: {
+      a: { id: "a", name: "A" },
+      b: { id: "b", name: "B" },
+      c: { id: "c", name: "C" },
+      v: { id: "v", name: "V", virtual: true, ownerGroupId: "g1" },
+    },
+    groups: {
+      g1: { id: "g1", name: "群組一", memberIds: ["a", "b", "v"], adminIds: ["a", "b"] },
+      g2: { id: "g2", name: "群組二", memberIds: ["b"], adminIds: ["b"] },
+    },
+    projects: {},
+    expenses: {},
+  };
+  const only = demoteToVirtualCheck(base, "a");
+  check("只在一個群組 → 可以，並算出歸屬群組", only.ok && only.groupId === "g1", only);
+  const many = demoteToVirtualCheck(base, "b");
+  check("在兩個群組 → 不行", !many.ok);
+  check("不行的時候要說得出原因", many.reason.includes("2 個群組"), many.reason);
+  const none = demoteToVirtualCheck(base, "c");
+  check("不在任何群組 → 不行", !none.ok);
+  check("已經是虛擬成員 → 不行", !demoteToVirtualCheck(base, "v").ok);
+  check("找不到帳號 → 不行", !demoteToVirtualCheck(base, "zzz").ok);
+
+  // 虛擬成員不能登入＝不能管理群組，把唯一的管理者降級會讓群組沒人管得動
+  const soloAdmin = {
+    ...base,
+    groups: { g1: { id: "g1", name: "群組一", memberIds: ["a", "v"], adminIds: ["a"] } },
+  };
+  const solo = demoteToVirtualCheck(soloAdmin, "a");
+  check("唯一的管理者不能被降成虛擬成員", !solo.ok, solo);
+  check("並且要說出是因為唯一管理者", solo.reason.includes("唯一的管理者"), solo.reason);
+
+  // 虛擬成員就算掛在 adminIds 上也不算數（他本來就登不進來）
+  const ghostAdmin = {
+    ...base,
+    groups: { g1: { id: "g1", name: "群組一", memberIds: ["a", "v"], adminIds: ["a", "v"] } },
+  };
+  check("虛擬成員不算有效管理者", !demoteToVirtualCheck(ghostAdmin, "a").ok);
 }
 
 console.log(`\n${fail === 0 ? "全部通過" : "有失敗"}：${pass} passed, ${fail} failed\n`);

@@ -125,6 +125,38 @@ export function pruneOrphans(data) {
   return { schemaVersion: SCHEMA_VERSION, users, groups, projects, expenses };
 }
 
+/**
+ * 一個正式帳號能不能被降成「虛擬成員」（只有後臺做得到）。
+ *
+ * 條件是他剛好只屬於一個群組：虛擬成員一定要有歸屬的群組，
+ * 同時在兩個以上的群組就無從決定要歸給誰，硬選一個會讓另一個群組
+ * 突然多出一個管不到的人。
+ */
+export function demoteToVirtualCheck(data, userId) {
+  const user = (data.users || {})[userId];
+  if (!user) return { ok: false, reason: "找不到這個帳號" };
+  if (user.virtual) return { ok: false, reason: "他已經是虛擬成員了" };
+  const groups = Object.values(data.groups || {}).filter((g) => (g.memberIds || []).includes(userId));
+  if (groups.length === 0) {
+    return { ok: false, reason: "他還不在任何群組。虛擬成員一定要屬於一個群組，先把他加進群組再轉。" };
+  }
+  if (groups.length > 1) {
+    const names = groups.map((g) => g.name).join("、");
+    return { ok: false, reason: `他同時在 ${groups.length} 個群組（${names}），無法決定要歸給哪一個。先把他移出到只剩一個。` };
+  }
+  const g = groups[0];
+  // 虛擬成員不能登入，所以也管不了群組。把最後一個管理者轉成虛擬，
+  // 這個群組就再也沒有人能加成員、改設定了。
+  const admins = (g.adminIds || []).filter((id) => !(data.users[id] || {}).virtual);
+  if (admins.includes(userId) && admins.length <= 1) {
+    return {
+      ok: false,
+      reason: `他是「${g.name}」唯一的管理者。轉成虛擬成員之後就不能登入，這個群組會沒有人能管理。請先指派另一位管理者。`,
+    };
+  }
+  return { ok: true, groupId: g.id, groupName: g.name, reason: "" };
+}
+
 /** 這筆項目引用到的所有成員 id，用來判斷某人能不能被移出群組。 */
 export function memberIdsUsedByExpense(e) {
   const ids = [];

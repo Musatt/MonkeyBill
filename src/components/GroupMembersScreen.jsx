@@ -1,20 +1,29 @@
 import React, { useState, useMemo } from "react";
-import { BACKSTAGE_NAME } from "../constants.js";
 import { hashPassword } from "../lib/auth.js";
 import { hasRecordsInGroup } from "../lib/schema.js";
+import { nameError, normalizeName } from "../lib/names.js";
+import { isVirtual, canJoinGroup } from "../lib/permissions.js";
 import { TopBar } from "./primitives.jsx";
 
 /**
  * 群組成員管理（管理者才進得來）。
+ *
+ * 這裡有兩種成員：
+ * ・正式成員 —— 全域帳號，跨群組共用，可以自己登入。
+ * ・虛擬成員 —— 只存在於這個群組、不能登入。用在「要幫他記帳但他不會用這個網站」，
+ *   或是「這個群組不想被別人看到」的時候。需要的時候可以轉成正式成員。
+ *
  * 帳號是全域的，所以這裡只管「誰在這個群組」與「誰是管理者」，不刪帳號本身。
  * 有留下紀錄的人不能移出（歷史帳目會找不到人），只能停用。
  */
 export function GroupMembersScreen({ group, data, myId, backstage, onBack, actions }) {
-  const [adding, setAdding] = useState(false);
+  const [adding, setAdding] = useState(null); // null | 'real' | 'virtual'
   const [newName, setNewName] = useState("");
   const [newPw, setNewPw] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmRemove, setConfirmRemove] = useState(null);
+  const [promoting, setPromoting] = useState(null); // 要轉成正式成員的虛擬成員
+  const [promotePw, setPromotePw] = useState("");
 
   const inactive = new Set(group.inactiveMemberIds || []);
   const admins = new Set(group.adminIds || []);
@@ -26,13 +35,14 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
   const activeMembers = members.filter((u) => !inactive.has(u.id));
   const inactiveMembers = members.filter((u) => inactive.has(u.id));
 
-  // 還沒加進這個群組、也沒被後臺停用的帳號
+  // 還沒加進這個群組、也沒被後臺停用的帳號。
+  // 別的群組的虛擬成員不能選——虛擬成員只屬於建立他的那個群組。
   const candidates = useMemo(
     () =>
       Object.values(data.users)
-        .filter((u) => !u.disabled && !group.memberIds.includes(u.id))
+        .filter((u) => !u.disabled && !group.memberIds.includes(u.id) && canJoinGroup(u, group.id))
         .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")),
-    [data.users, group.memberIds]
+    [data.users, group.memberIds, group.id]
   );
 
   const lockedIds = useMemo(() => {
@@ -43,19 +53,38 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
     return s;
   }, [data, group.id, group.memberIds]);
 
-  const trimmed = newName.trim();
-  const nameTaken = Object.values(data.users).some((u) => u.name === trimmed);
-  const isReserved = trimmed === BACKSTAGE_NAME;
-  const canCreate = !!trimmed && !nameTaken && !isReserved && !busy;
+  const addError = newName ? nameError(newName, data.users) : "";
+  const canCreate = !!normalizeName(newName) && !addError && !busy;
 
   const createMember = async () => {
     setBusy(true);
     try {
-      const passwordHash = newPw ? await hashPassword(newPw) : null;
-      actions.createUserInGroup(group.id, trimmed, passwordHash);
-      setNewName("");
-      setNewPw("");
-      setAdding(false);
+      const name = normalizeName(newName);
+      if (adding === "virtual") {
+        actions.createVirtualMember(group.id, name);
+      } else {
+        const passwordHash = newPw ? await hashPassword(newPw) : null;
+        actions.createUserInGroup(group.id, name, passwordHash);
+      }
+      closeAdd();
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const closeAdd = () => {
+    setAdding(null);
+    setNewName("");
+    setNewPw("");
+  };
+
+  const doPromote = async () => {
+    setBusy(true);
+    try {
+      const passwordHash = promotePw ? await hashPassword(promotePw) : null;
+      actions.promoteToReal(promoting.id, passwordHash);
+      setPromoting(null);
+      setPromotePw("");
     } finally {
       setBusy(false);
     }
@@ -68,24 +97,33 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
     const isInactive = inactive.has(u.id);
     const locked = lockedIds.has(u.id);
     const lastAdmin = isAdmin && adminCount <= 1;
+    const virtual = isVirtual(u);
     return (
       <div key={u.id} className={"member-order-row" + (isInactive ? " member-order-row-off" : "")}>
         <span className="member-order-name">
           {u.name}
           {u.id === myId && <span className="row-me-tag">你</span>}
+          {virtual && <span className="virtual-tag">虛擬</span>}
           {isAdmin && <span className="admin-tag">管理者</span>}
-          {isInactive && <span className="hint-text" style={{ marginLeft: 6 }}>（已停用）</span>}
+          {isInactive && <span className="off-tag">已停用</span>}
         </span>
-        <button className="link-btn" onClick={() => actions.setGroupAdmin(group.id, u.id, !isAdmin)} disabled={lastAdmin}>
-          {isAdmin ? "取消管理者" : "設為管理者"}
-        </button>
-        <button className="link-btn" onClick={() => actions.setMemberInactive(group.id, u.id, !isInactive)}>
+        {virtual ? (
+          // 虛擬成員不能登入，所以「管理者」對他沒有意義
+          <button className="act" onClick={() => setPromoting(u)}>轉成正式</button>
+        ) : (
+          <button
+            className="act"
+            onClick={() => actions.setGroupAdmin(group.id, u.id, !isAdmin)}
+            disabled={lastAdmin}
+          >
+            {isAdmin ? "取消管理者" : "設為管理者"}
+          </button>
+        )}
+        <button className="act" onClick={() => actions.setMemberInactive(group.id, u.id, !isInactive)}>
           {isInactive ? "啟用" : "停用"}
         </button>
         {!locked && (
-          <button className="link-btn del-btn-danger" onClick={() => setConfirmRemove(u)}>
-            移出
-          </button>
+          <button className="act act-danger" onClick={() => setConfirmRemove(u)}>移出</button>
         )}
       </div>
     );
@@ -100,7 +138,9 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
         停用後不會出現在新增項目的選人清單，但歷史紀錄與餘額都保留。
       </div>
 
-      <div className="band" style={{ marginTop: 14 }}><span>成員 <span className="band-n">{activeMembers.length}</span></span></div>
+      <div className="sec-head">
+        成員 <span className="sec-head-n">{activeMembers.length}</span>
+      </div>
       <div className="member-order-list">
         {activeMembers.map(row)}
         {activeMembers.length === 0 && <div className="empty-hint">這個群組還沒有成員</div>}
@@ -108,12 +148,14 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
 
       {inactiveMembers.length > 0 && (
         <>
-          <div className="band" style={{ marginTop: 18 }}><span>已停用 <span className="band-n">{inactiveMembers.length}</span></span></div>
+          <div className="sec-head">
+            已停用 <span className="sec-head-n">{inactiveMembers.length}</span>
+          </div>
           <div className="member-order-list">{inactiveMembers.map(row)}</div>
         </>
       )}
 
-      <div className="band" style={{ marginTop: 20 }}><span>加入成員</span></div>
+      <div className="sec-head">加入成員</div>
       {candidates.length > 0 && (
         <>
           <div className="hint-text">從現有帳號選：</div>
@@ -128,23 +170,72 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
       )}
 
       {!adding ? (
-        <button className="btn-outline full-width" style={{ marginTop: 12 }} onClick={() => setAdding(true)}>
-          ＋ 建立新帳號並加入
-        </button>
+        <div className="row-form" style={{ marginTop: 12 }}>
+          <button className="btn-outline" onClick={() => setAdding("real")}>＋ 正式成員</button>
+          <button className="btn-outline" onClick={() => setAdding("virtual")}>＋ 虛擬成員</button>
+        </div>
       ) : (
         <div className="card" style={{ marginTop: 12 }}>
-          <div className="section-label">暱稱</div>
+          <div className="sec-head sec-head-tight">
+            {adding === "virtual" ? "建立虛擬成員" : "建立正式成員"}
+          </div>
+          <div className="hint-text">
+            {adding === "virtual"
+              ? "虛擬成員不會出現在登入畫面，別人選不到他，也就進不來這個群組。他只屬於這個群組，之後隨時可以轉成正式成員。"
+              : "正式成員是全域帳號，可以自己登入，也能被加進別的群組。"}
+          </div>
+
+          <label className="form-label">暱稱</label>
           <input className="input" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="例如：正傑" autoFocus />
-          {nameTaken && <div className="hint-text hint-warn">已經有人用這個暱稱了</div>}
-          {isReserved && <div className="hint-text hint-warn">這是保留名稱，不能用</div>}
-          <div className="section-label" style={{ marginTop: 10 }}>密碼（可留空）</div>
-          <input className="input mono" type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="通常留空，讓本人之後自己設" />
-          <div className="hint-text">幫朋友建的帳號建議留空密碼，他自己登入後再去個人資料設定。</div>
+          {addError && <div className="hint-text hint-warn">{addError}</div>}
+          <div className="hint-text">暱稱全系統唯一，正式成員與虛擬成員都不能重複。</div>
+
+          {adding === "real" && (
+            <>
+              <label className="form-label">密碼（可留空）</label>
+              <input
+                className="input mono"
+                type="password"
+                value={newPw}
+                onChange={(e) => setNewPw(e.target.value)}
+                placeholder="通常留空，讓本人之後自己設"
+              />
+              <div className="hint-text">幫朋友建的帳號建議留空密碼，他自己登入後再去個人資料設定。</div>
+            </>
+          )}
+
           <div className="row-form" style={{ marginTop: 12 }}>
-            <button className="btn-ghost" onClick={() => { setAdding(false); setNewName(""); setNewPw(""); }}>取消</button>
+            <button className="btn-ghost" onClick={closeAdd}>取消</button>
             <button className="btn-accent" disabled={!canCreate} onClick={createMember}>
               {busy ? "建立中…" : "建立並加入"}
             </button>
+          </div>
+        </div>
+      )}
+
+      {promoting && (
+        <div className="modal-backdrop" onClick={() => setPromoting(null)} role="dialog" aria-modal="true">
+          <div className="modal-card" onClick={(e) => e.stopPropagation()}>
+            <div className="onboard-eyebrow">轉成正式成員</div>
+            <div className="modal-title">{promoting.name}</div>
+            <div className="hint-text">
+              轉成正式成員之後，他就會出現在登入畫面、可以自己進來，也能被加進別的群組。
+              所有歷史帳目完全不動。
+            </div>
+            <label className="form-label">密碼（可留空）</label>
+            <input
+              className="input mono"
+              type="password"
+              value={promotePw}
+              onChange={(e) => setPromotePw(e.target.value)}
+              placeholder="留空的話任何人都能選他的身分"
+            />
+            <div className="row-form" style={{ marginTop: 12 }}>
+              <button className="btn-ghost" onClick={() => { setPromoting(null); setPromotePw(""); }}>取消</button>
+              <button className="btn-accent" disabled={busy} onClick={doPromote}>
+                {busy ? "轉換中…" : "確定轉換"}
+              </button>
+            </div>
           </div>
         </div>
       )}
@@ -155,7 +246,9 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
             <div className="onboard-eyebrow">移出群組</div>
             <div className="modal-title">{confirmRemove.name}</div>
             <div className="hint-text">
-              他在這個群組沒有任何帳目紀錄，移出不會影響歷史。帳號本身不會被刪除，之後還能再加回來。
+              {isVirtual(confirmRemove)
+                ? "他在這個群組沒有任何帳目紀錄。虛擬成員只屬於這個群組，移出之後就沒有群組可去了，只有後臺看得到他。"
+                : "他在這個群組沒有任何帳目紀錄，移出不會影響歷史。帳號本身不會被刪除，之後還能再加回來。"}
             </div>
             <div className="row-form" style={{ marginTop: 12 }}>
               <button className="btn-ghost" onClick={() => setConfirmRemove(null)}>取消</button>

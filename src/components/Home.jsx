@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from "react";
 import { relativeTime } from "../lib/format.js";
+import { isVirtual } from "../lib/permissions.js";
 import { BackupPanel } from "./BackupPanel.jsx";
 
 /**
@@ -14,10 +15,11 @@ export function Home({ me, groups, users, lastSyncedAt, onOpenGroup, onCreateGro
   const [picked, setPicked] = useState(() => new Set());
   const [syncing, setSyncing] = useState(false);
 
+  // 虛擬成員只屬於原本那個群組，不能被拉進新群組（要的話在群組裡另外建一個）
   const candidates = useMemo(
     () =>
       Object.values(users)
-        .filter((u) => !u.disabled && u.id !== me.id)
+        .filter((u) => !u.disabled && u.id !== me.id && !isVirtual(u))
         .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant")),
     [users, me.id]
   );
@@ -74,10 +76,10 @@ export function Home({ me, groups, users, lastSyncedAt, onOpenGroup, onCreateGro
         </div>
       </div>
 
-      <div className="band">
-        <span>我的群組 <span className="band-n">{groups.length}</span></span>
+      <div className="sec-head">
+        我的群組 <span className="sec-head-n">{groups.length}</span>
       </div>
-      <div className="list-stack" style={{ marginTop: 10 }}>
+      <div className="list-stack">
         {groups.map((g) => {
           const activeCount = g.memberIds.filter((id) => !(g.inactiveMemberIds || []).includes(id)).length;
           const isAdmin = (g.adminIds || []).includes(me.id);
@@ -103,6 +105,7 @@ export function Home({ me, groups, users, lastSyncedAt, onOpenGroup, onCreateGro
         </button>
       ) : (
         <div className="card" style={{ marginTop: 16 }}>
+          <div className="sec-head sec-head-tight">新增群組</div>
           <div className="section-label">群組名稱</div>
           <input className="input" value={name} onChange={(e) => setName(e.target.value)} placeholder="例如：勿考試喝酒" autoFocus />
 

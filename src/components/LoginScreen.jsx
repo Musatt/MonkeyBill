@@ -1,6 +1,8 @@
 import React, { useState, useMemo } from "react";
 import { BACKSTAGE_NAME, MASTER_PASSWORD } from "../constants.js";
 import { hashPassword, verifyPassword, hasPassword } from "../lib/auth.js";
+import { canLogin } from "../lib/permissions.js";
+import { normalizeName, nameError } from "../lib/names.js";
 
 /**
  * 開啟 App 的第一關：選身分。
@@ -17,8 +19,10 @@ export function LoginScreen({ users, groups, onLogin, onCreate, onBackstage }) {
   const [newPw1, setNewPw1] = useState("");
   const [newPw2, setNewPw2] = useState("");
 
+  // 虛擬成員在這裡整個不出現——這就是它存在的理由：
+  // 沒設密碼的身分等於一扇沒鎖的門，虛擬成員連門都不掛出來。
   const active = Object.values(users)
-    .filter((u) => !u.disabled)
+    .filter(canLogin)
     .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
 
   // 依群組分區，人多的時候才找得到自己。
@@ -64,11 +68,10 @@ export function LoginScreen({ users, groups, onLogin, onCreate, onBackstage }) {
     }
   };
 
-  const trimmedNew = newName.trim();
-  const isBackstageName = trimmedNew === BACKSTAGE_NAME;
-  const nameTaken = Object.values(users).some((u) => u.name === trimmedNew);
+  const trimmedNew = normalizeName(newName);
+  const newNameError = newName ? nameError(newName, users) : "";
   const pwMismatch = !!newPw1 && newPw1 !== newPw2;
-  const canCreate = !!trimmedNew && !nameTaken && !isBackstageName && !pwMismatch && !busy;
+  const canCreate = !!trimmedNew && !newNameError && !pwMismatch && !busy;
 
   const submitCreate = async () => {
     setBusy(true);
@@ -128,8 +131,7 @@ export function LoginScreen({ users, groups, onLogin, onCreate, onBackstage }) {
         </div>
         <div className="section-label">暱稱</div>
         <input className="input" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="例如：猴子" autoFocus />
-        {nameTaken && <div className="hint-text hint-warn">已經有人用這個暱稱了，請換一個</div>}
-        {isBackstageName && <div className="hint-text hint-warn">這是保留名稱，不能用來建立帳號</div>}
+        {newNameError && <div className="hint-text hint-warn">{newNameError}</div>}
 
         <div className="section-label" style={{ marginTop: 12 }}>密碼（可留空）</div>
         <input className="input mono" type="password" value={newPw1} onChange={(e) => setNewPw1(e.target.value)} placeholder="不想設就留空" />

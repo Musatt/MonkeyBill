@@ -23,7 +23,7 @@ import { ProjectView } from "./components/ProjectView.jsx";
 import { ProjectEditScreen } from "./components/ProjectEditScreen.jsx";
 import { ShareModal } from "./components/ShareModal.jsx";
 
-const newUser = (name, passwordHash = null) => ({
+const newUser = (name, passwordHash = null, extra = {}) => ({
   id: uid("mem"),
   name,
   passwordHash,
@@ -32,7 +32,11 @@ const newUser = (name, passwordHash = null) => ({
   bankAccount: "",
   otherPayment: "",
   disabled: false,
+  // 虛擬成員：不能登入，只屬於 ownerGroupId 那個群組
+  virtual: false,
+  ownerGroupId: null,
   createdAt: Date.now(),
+  ...extra,
 });
 
 export default function App() {
@@ -184,6 +188,28 @@ export default function App() {
       };
     });
   };
+
+  /* ---------- 虛擬成員 ---------- */
+  // 建出來就直接是這個群組的成員；沒有密碼，也永遠不會出現在登入頁。
+  const createVirtualMember = (groupId, name) => {
+    const u = newUser(name, null, { virtual: true, ownerGroupId: groupId });
+    persist((prev) => {
+      const g = prev.groups[groupId];
+      return {
+        ...prev,
+        users: { ...prev.users, [u.id]: u },
+        groups: { ...prev.groups, [groupId]: { ...g, memberIds: [...g.memberIds, u.id] } },
+      };
+    });
+  };
+
+  // 轉成正式帳號後就能登入了，歷史帳目完全不動（本來就是同一個 id）
+  const promoteToReal = (userId, passwordHash) =>
+    updateUser(userId, { virtual: false, ownerGroupId: null, passwordHash: passwordHash || null });
+
+  // 反向：正式帳號降成虛擬成員，密碼一併清掉（虛擬成員沒有密碼的概念）
+  const demoteToVirtual = (userId, groupId) =>
+    updateUser(userId, { virtual: true, ownerGroupId: groupId, passwordHash: null });
 
   const removeMemberFromGroup = (groupId, userId) =>
     persist((prev) => {
@@ -404,7 +430,14 @@ export default function App() {
           <BackstageScreen
             data={data}
             onExit={logout}
-            actions={{ setUserDisabled, deleteUser, deleteGroup, deleteProject: (id) => deleteProject(id, null) }}
+            actions={{
+              setUserDisabled,
+              deleteUser,
+              deleteGroup,
+              deleteProject: (id) => deleteProject(id, null),
+              demoteToVirtual,
+              promoteToReal,
+            }}
           />
         </div>
       </div>
@@ -451,6 +484,7 @@ export default function App() {
         viewerId={myId}
         backstage={backstage}
         visibleGroups={visibleGroups}
+        currentGroup={currentGroup}
         onBack={goUp}
         onUpdate={updateUser}
         onSetPassword={setUserPassword}
@@ -481,7 +515,15 @@ export default function App() {
         myId={myId}
         backstage={backstage}
         onBack={goUp}
-        actions={{ addMemberToGroup, createUserInGroup, removeMemberFromGroup, setMemberInactive, setGroupAdmin }}
+        actions={{
+          addMemberToGroup,
+          createUserInGroup,
+          createVirtualMember,
+          promoteToReal,
+          removeMemberFromGroup,
+          setMemberInactive,
+          setGroupAdmin,
+        }}
       />
     ) : (
       notAdmin

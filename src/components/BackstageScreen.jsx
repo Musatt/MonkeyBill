@@ -101,14 +101,21 @@ export function BackstageScreen({ data, onExit, actions }) {
                     {u.passwordHash && <span className="lock-mark"> 🔒</span>}
                     {u.disabled && <span className="off-tag">已停用</span>}
                   </span>
-                  <button className="act" onClick={() => setConvert(u)}>
+                  {/* 綠＝給他東西，黃＝收回，紅＝拿掉這個人。跟群組的管理成員同一套。 */}
+                  <button
+                    className={"rowact " + (virtual ? "rowact-grant" : "rowact-revoke")}
+                    onClick={() => setConvert(u)}
+                  >
                     {virtual ? "轉成正式" : "轉成虛擬"}
                   </button>
-                  <button className="act" onClick={() => actions.setUserDisabled(u.id, !u.disabled)}>
+                  <button
+                    className={"rowact " + (u.disabled ? "rowact-grant" : "rowact-revoke")}
+                    onClick={() => actions.setUserDisabled(u.id, !u.disabled)}
+                  >
                     {u.disabled ? "啟用" : "停用"}
                   </button>
                   {!inUse && (
-                    <button className="act act-danger" onClick={() => askConfirm("user", u.id, u.name)}>
+                    <button className="rowact rowact-danger" onClick={() => askConfirm("user", u.id, u.name)}>
                       刪除
                     </button>
                   )}
@@ -130,7 +137,7 @@ export function BackstageScreen({ data, onExit, actions }) {
                   {g.memberIds.length} 人 · {projectCountOfGroup(g.id)} 個專案
                 </span>
               </span>
-              <button className="act act-danger" onClick={() => askConfirm("group", g.id, g.name)}>刪除</button>
+              <button className="rowact rowact-danger" onClick={() => askConfirm("group", g.id, g.name)}>刪除</button>
             </div>
           ))}
           {groupsList.length === 0 && <div className="empty-hint">還沒有任何群組</div>}
@@ -147,7 +154,7 @@ export function BackstageScreen({ data, onExit, actions }) {
                   {data.groups[p.groupId]?.name || "?"} · {expenseCountOfProject(p.id)} 筆
                 </span>
               </span>
-              <button className="act act-danger" onClick={() => askConfirm("project", p.id, p.name)}>刪除</button>
+              <button className="rowact rowact-danger" onClick={() => askConfirm("project", p.id, p.name)}>刪除</button>
             </div>
           ))}
           {projectsList.length === 0 && <div className="empty-hint">還沒有任何專案</div>}

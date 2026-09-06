@@ -20,6 +20,7 @@ import {
   canJoinGroup,
   canEditIdentity,
   canPromoteToReal,
+  canDeleteVirtualMember,
 } from "./permissions.js";
 
 let pass = 0;
@@ -175,6 +176,14 @@ console.log("\n[虛擬成員：不能登入，只屬於自己的群組]");
   check("所屬群組的管理者可以把虛擬成員轉正", canPromoteToReal(ghost, "r1", g1, false));
   check("別的群組的管理者不行", !canPromoteToReal(ghost, "r2", g2, false));
   check("正式帳號沒有「轉正」這件事", !canPromoteToReal(real, "r1", g1, false));
+
+  // 虛擬成員只存在於這個群組，所以群組管理者就能刪，不必經過後臺
+  check("管理者可以刪自己群組的虛擬成員", canDeleteVirtualMember(ghost, "r1", g1, false, false));
+  check("有帳目紀錄的虛擬成員不能刪", !canDeleteVirtualMember(ghost, "r1", g1, false, true));
+  check("非管理者不能刪", !canDeleteVirtualMember(ghost, "r2", g1, false, false));
+  check("別的群組不能刪", !canDeleteVirtualMember(ghost, "r2", g2, false, false));
+  check("正式帳號不能用這條路刪掉", !canDeleteVirtualMember(real, "r1", g1, false, false));
+  check("後臺也擋有紀錄的", !canDeleteVirtualMember(ghost, null, g1, true, true));
 }
 
 console.log("\n[正式帳號降成虛擬成員：只有剛好在一個群組時才行]");

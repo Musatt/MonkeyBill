@@ -211,6 +211,36 @@ export default function App() {
   const demoteToVirtual = (userId, groupId) =>
     updateUser(userId, { virtual: true, ownerGroupId: groupId, passwordHash: null });
 
+  // 群組管理者可以直接刪掉自己群組的虛擬成員（正式帳號仍然只有後臺能刪）
+  const deleteVirtualMember = (groupId, userId) =>
+    persist((prev) => {
+      const u = prev.users[userId];
+      // 再擋一次：只能刪自己群組的虛擬成員。畫面按錯或網址被改都不該砍到正式帳號。
+      if (!u || !u.virtual || u.ownerGroupId !== groupId) return prev;
+      const users = { ...prev.users };
+      delete users[userId];
+      const g = prev.groups[groupId];
+      const group = {
+        ...g,
+        memberIds: g.memberIds.filter((id) => id !== userId),
+        adminIds: (g.adminIds || []).filter((id) => id !== userId),
+        inactiveMemberIds: (g.inactiveMemberIds || []).filter((id) => id !== userId),
+      };
+      // 專案名單也要清掉，否則會留下一個查不到人的 id
+      const projects = { ...prev.projects };
+      Object.values(prev.projects).forEach((p) => {
+        if (p.groupId === groupId && p.memberIds.includes(userId)) {
+          const memberIds = p.memberIds.filter((id) => id !== userId);
+          projects[p.id] = {
+            ...p,
+            memberIds,
+            collectorId: p.collectorId === userId ? null : p.collectorId,
+          };
+        }
+      });
+      return { ...prev, users, groups: { ...prev.groups, [groupId]: group }, projects };
+    });
+
   const removeMemberFromGroup = (groupId, userId) =>
     persist((prev) => {
       const g = prev.groups[groupId];
@@ -520,6 +550,7 @@ export default function App() {
           createUserInGroup,
           createVirtualMember,
           promoteToReal,
+          deleteVirtualMember,
           removeMemberFromGroup,
           setMemberInactive,
           setGroupAdmin,

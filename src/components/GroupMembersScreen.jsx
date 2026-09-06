@@ -2,7 +2,7 @@ import React, { useState, useMemo } from "react";
 import { hashPassword } from "../lib/auth.js";
 import { hasRecordsInGroup } from "../lib/schema.js";
 import { nameError, normalizeName } from "../lib/names.js";
-import { isVirtual, canJoinGroup } from "../lib/permissions.js";
+import { isVirtual, canJoinGroup, canDeleteVirtualMember } from "../lib/permissions.js";
 import { TopBar } from "./primitives.jsx";
 
 /**
@@ -92,12 +92,19 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
 
   const adminCount = (group.adminIds || []).length;
 
+  /*
+    操作鍵用顏色分成三類，一整排同色會分不出哪個是哪個：
+      綠 = 給他東西（設為管理者、啟用、轉成正式）
+      黃 = 收回（取消管理者、停用）
+      紅 = 拿掉這個人（移出、刪除）
+  */
   const row = (u) => {
     const isAdmin = admins.has(u.id);
     const isInactive = inactive.has(u.id);
     const locked = lockedIds.has(u.id);
     const lastAdmin = isAdmin && adminCount <= 1;
     const virtual = isVirtual(u);
+    const canDelete = canDeleteVirtualMember(u, myId, group, backstage, locked);
     return (
       <div key={u.id} className={"member-order-row" + (isInactive ? " member-order-row-off" : "")}>
         <span className="member-order-name">
@@ -109,22 +116,30 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
         </span>
         {virtual ? (
           // 虛擬成員不能登入，所以「管理者」對他沒有意義
-          <button className="act" onClick={() => setPromoting(u)}>轉成正式</button>
+          <button className="rowact rowact-grant" onClick={() => setPromoting(u)}>轉成正式</button>
         ) : (
           <button
-            className="act"
+            className={"rowact " + (isAdmin ? "rowact-revoke" : "rowact-grant")}
             onClick={() => actions.setGroupAdmin(group.id, u.id, !isAdmin)}
             disabled={lastAdmin}
+            title={lastAdmin ? "群組至少要留一位管理者" : undefined}
           >
             {isAdmin ? "取消管理者" : "設為管理者"}
           </button>
         )}
-        <button className="act" onClick={() => actions.setMemberInactive(group.id, u.id, !isInactive)}>
+        <button
+          className={"rowact " + (isInactive ? "rowact-grant" : "rowact-revoke")}
+          onClick={() => actions.setMemberInactive(group.id, u.id, !isInactive)}
+        >
           {isInactive ? "啟用" : "停用"}
         </button>
-        {!locked && (
-          <button className="act act-danger" onClick={() => setConfirmRemove(u)}>移出</button>
-        )}
+        {virtual
+          ? canDelete && (
+              <button className="rowact rowact-danger" onClick={() => setConfirmRemove(u)}>刪除</button>
+            )
+          : !locked && (
+              <button className="rowact rowact-danger" onClick={() => setConfirmRemove(u)}>移出</button>
+            )}
       </div>
     );
   };
@@ -243,11 +258,13 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
       {confirmRemove && (
         <div className="modal-backdrop" onClick={() => setConfirmRemove(null)} role="dialog" aria-modal="true">
           <div className="modal-card" onClick={(e) => e.stopPropagation()}>
-            <div className="onboard-eyebrow">移出群組</div>
+            <div className="onboard-eyebrow">
+              {isVirtual(confirmRemove) ? "刪除虛擬成員" : "移出群組"}
+            </div>
             <div className="modal-title">{confirmRemove.name}</div>
-            <div className="hint-text">
+            <div className={"hint-text" + (isVirtual(confirmRemove) ? " hint-warn" : "")}>
               {isVirtual(confirmRemove)
-                ? "他在這個群組沒有任何帳目紀錄。虛擬成員只屬於這個群組，移出之後就沒有群組可去了，只有後臺看得到他。"
+                ? "他在這個群組沒有任何帳目紀錄，可以直接刪掉。虛擬成員只存在於這個群組，刪除後就完全消失，無法復原——需要的話要重新建一個。"
                 : "他在這個群組沒有任何帳目紀錄，移出不會影響歷史。帳號本身不會被刪除，之後還能再加回來。"}
             </div>
             <div className="row-form" style={{ marginTop: 12 }}>
@@ -255,11 +272,12 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
               <button
                 className="btn-accent"
                 onClick={() => {
-                  actions.removeMemberFromGroup(group.id, confirmRemove.id);
+                  if (isVirtual(confirmRemove)) actions.deleteVirtualMember(group.id, confirmRemove.id);
+                  else actions.removeMemberFromGroup(group.id, confirmRemove.id);
                   setConfirmRemove(null);
                 }}
               >
-                確定移出
+                {isVirtual(confirmRemove) ? "確定刪除" : "確定移出"}
               </button>
             </div>
           </div>

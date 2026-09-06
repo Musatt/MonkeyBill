@@ -418,8 +418,39 @@ select.input {
   background: var(--accent-2); color: #1b2027; font-weight: 700; font-size: 12px;
   text-align: center; padding: 8px; border-radius: 6px; letter-spacing: 0.08em;
 }
-.member-order-row .act { flex-shrink: 0; }
 .act:disabled { opacity: 0.3; cursor: not-allowed; }
+
+/* 成員列的操作鍵。
+   一整排同色的文字連結分不出哪個是哪個——尤其「設為管理者」與「取消管理者」
+   是相反的動作卻長得一模一樣。用顏色分成三類：
+     綠 = 給他東西（設為管理者、啟用、轉成正式）
+     黃 = 收回（取消管理者、停用、轉成虛擬）
+     紅 = 拿掉這個人（移出、刪除） */
+.rowact {
+  flex-shrink: 0; cursor: pointer; white-space: nowrap; line-height: 1;
+  background: var(--surface-2); border: 1px solid var(--border); color: var(--text-dim);
+  border-radius: 5px; padding: 6px 8px; min-height: 30px;
+  font-family: inherit; font-size: var(--fs-meta); font-weight: 600;
+}
+.rowact-grant {
+  color: var(--positive);
+  border-color: color-mix(in srgb, var(--positive) 55%, var(--border));
+  background: color-mix(in srgb, var(--positive) 10%, var(--surface-2));
+}
+.rowact-revoke {
+  color: var(--accent-2);
+  border-color: color-mix(in srgb, var(--accent-2) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent-2) 10%, var(--surface-2));
+}
+.rowact-danger {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-2));
+}
+.rowact:disabled { opacity: 0.3; cursor: not-allowed; }
+/* 三顆鍵放不下時整組換到第二行，不要把名字壓成一個字一行 */
+.member-order-row { flex-wrap: wrap; row-gap: 5px; padding: 5px 6px 5px 9px; }
+.member-order-name { flex: 1 1 40%; min-width: 88px; }
 
 /* 登入畫面依群組分區 */
 .login-section { margin-bottom: 16px; }

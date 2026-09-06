@@ -42,6 +42,19 @@ export function canEditIdentity(user, viewerId, group, backstage) {
   return !!user && user.id === viewerId;
 }
 
+/**
+ * 群組管理者可以直接刪掉自己群組的虛擬成員，不必經過後臺。
+ * 虛擬成員只存在於這一個群組，刪掉不會牽動別的群組——正式帳號才需要後臺把關。
+ * 但有留下帳目的一樣不能刪：刪了歷史帳目就會找不到人。
+ */
+export function canDeleteVirtualMember(user, viewerId, group, backstage, hasRecords) {
+  if (!isVirtual(user)) return false;
+  if (hasRecords) return false;
+  if (!group || group.id !== user.ownerGroupId) return false;
+  if (backstage) return true;
+  return isGroupAdmin(group, viewerId, false);
+}
+
 /** 把虛擬成員轉成正式帳號：所屬群組的管理者就可以做，反正本來就是他建的。 */
 export function canPromoteToReal(user, viewerId, group, backstage) {
   if (!isVirtual(user)) return false;

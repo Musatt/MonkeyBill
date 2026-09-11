@@ -1,0 +1,35 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+
+    "ledger": {
+      ".read": true,
+
+      "users": {
+        "$id": {
+          ".write": true,
+          ".validate": "newData.child('id').val() === $id && newData.child('name').isString()"
+        }
+      },
+      "groups": {
+        "$id": {
+          ".write": true,
+          ".validate": "newData.child('id').val() === $id && newData.child('name').isString()"
+        }
+      },
+      "projects": {
+        "$id": {
+          ".write": true,
+          ".validate": "newData.child('id').val() === $id && newData.child('groupId').isString()"
+        }
+      },
+      "expenses": {
+        "$id": {
+          ".write": true,
+          ".validate": "newData.child('id').val() === $id && newData.child('projectId').isString() && newData.child('baseAmount').isNumber()"
+        }
+      }
+    }
+  }
+}

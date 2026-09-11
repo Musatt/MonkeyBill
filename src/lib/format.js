@@ -68,6 +68,17 @@ export function formatTimestamp(ts) {
   return `${todayStr(d)} ${hh}:${mm}`;
 }
 
+/**
+ * 標題列的同步狀態。
+ * 連線中就是「即時同步」——別人一改就會推過來，不需要再講「幾秒前同步」。
+ * 斷線時才告訴使用者他看到的是多久以前的資料。
+ */
+export function syncLabel(connected, lastSyncedAt, now = Date.now()) {
+  if (connected) return "即時同步中";
+  if (!lastSyncedAt) return "連線中…";
+  return `離線中 · ${relativeTime(lastSyncedAt, now)}`; // 例如「離線中 · 5 分前同步」
+}
+
 /** 「剛剛 / 30 秒前 / 5 分前」——同步狀態用的相對時間。 */
 export function relativeTime(ts, now = Date.now()) {
   if (!ts) return "尚未同步";

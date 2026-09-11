@@ -4,6 +4,7 @@ import { useStore } from "./lib/useStore.js";
 import { useRouter, buildHash } from "./lib/useRouter.js";
 import { uid, todayStr } from "./lib/format.js";
 import { loadSession, saveSession } from "./lib/session.js";
+import { migrate } from "./lib/schema.js";
 import {
   isGroupAdmin,
   canDeleteProject,
@@ -40,7 +41,7 @@ const newUser = (name, passwordHash = null, extra = {}) => ({
 });
 
 export default function App() {
-  const { data, loading, err, persist, retry, refresh, saveState, retrySave, lastSyncedAt } = useStore();
+  const { data, loading, err, persist, retry, connected, saveState, retrySave, lastSyncedAt } = useStore();
   const { route, navigate, replace, up } = useRouter();
   const [session, setSession] = useState(loadSession);
   const [backstageGate, setBackstageGate] = useState(false);
@@ -332,8 +333,10 @@ export default function App() {
     if (groupId) replace({ screen: "group", groupId });
   };
 
+  // 還原備份：先轉成目前的格式（舊版 v1 備份也吃得下），
+  // 再跟現在的資料比對，備份裡沒有的會被刪掉、有的會被寫回去。
   const restoreData = (parsed) => {
-    persist(() => parsed, { replace: true });
+    persist(() => migrate(parsed));
     goHome();
   };
 
@@ -419,7 +422,7 @@ export default function App() {
     const shell = (inner) => (
       <div className="app-shell">
         <div className="app-frame">
-          <SaveBanner saveState={saveState} onRetry={retrySave} />
+          <SaveBanner saveState={saveState} onRetry={retrySave} connected={connected} />
           {inner}
         </div>
       </div>
@@ -456,7 +459,7 @@ export default function App() {
     return (
       <div className="app-shell">
         <div className="app-frame">
-          <SaveBanner saveState={saveState} onRetry={retrySave} />
+          <SaveBanner saveState={saveState} onRetry={retrySave} connected={connected} />
           <BackstageScreen
             data={data}
             onExit={logout}
@@ -600,7 +603,7 @@ export default function App() {
           })
         }
         actions={actions}
-        onRefresh={refresh}
+        connected={connected}
       />
     );
   } else if (route.screen === "group" && currentGroup) {
@@ -613,7 +616,7 @@ export default function App() {
         myId={myId}
         isAdmin={amAdmin}
         lastSyncedAt={lastSyncedAt}
-        onRefresh={refresh}
+        connected={connected}
         onBack={goUp}
         onOpenProject={(projectId) => navigate({ screen: "project", groupId: currentGroup.id, projectId, tab: "expenses" })}
         onCreateProject={createProject}
@@ -643,7 +646,7 @@ export default function App() {
         onOpenProfile={() => navigate({ screen: "user", userId: myId })}
         data={data}
         onRestore={restoreData}
-        onRefresh={refresh}
+        connected={connected}
       />
     );
   }
@@ -651,7 +654,7 @@ export default function App() {
   return (
     <div className="app-shell">
       <div className="app-frame">
-        <SaveBanner saveState={saveState} onRetry={retrySave} />
+        <SaveBanner saveState={saveState} onRetry={retrySave} connected={connected} />
         {content}
         {sharing && <ShareModal {...sharing} onClose={() => setSharing(null)} />}
       </div>

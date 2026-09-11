@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { todayStr, nowHHMM, relativeTime } from "../lib/format.js";
+import { todayStr, nowHHMM, syncLabel } from "../lib/format.js";
 import { isPickable } from "../lib/permissions.js";
 import { memberIdsUsedByExpense } from "../lib/schema.js";
 import { exportCSV } from "../lib/exportCsv.js";
@@ -34,9 +34,8 @@ export function ProjectView({
   onOpenSettings,
   onShare,
   actions,
-  onRefresh,
+  connected,
 }) {
-  const [syncing, setSyncing] = useState(false);
   const [menuOpen, setMenuOpen] = useState(false);
   const [toast, setToast] = useState("");
   // 「已付款」帶進表單的預填內容，無法用網址表達，所以放在元件狀態裡
@@ -57,15 +56,6 @@ export function ProjectView({
     if (!editor) setPrefill(null);
   }, [editor]);
 
-  const handleRefresh = async () => {
-    setSyncing(true);
-    setMenuOpen(false);
-    try {
-      await onRefresh();
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const markPaid = (txn) => {
     const n = nowHHMM();
@@ -122,7 +112,7 @@ export function ProjectView({
           <div className="hdr-name">{project.name}</div>
           <div className="hdr-sub">
             {group.name} · 你是 {membersById[myId]?.name || "?"} ·{" "}
-            {syncing ? "同步中…" : relativeTime(lastSyncedAt)}
+            {syncLabel(connected, lastSyncedAt)}
           </div>
         </div>
         {!editor && (
@@ -134,7 +124,6 @@ export function ProjectView({
               <>
                 <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
                 <div className="menu-pop" role="menu">
-                  <button onClick={handleRefresh}>立即同步</button>
                   <button onClick={() => { setMenuOpen(false); onShare(); }}>分享專案</button>
                   <button onClick={doExport}>匯出 CSV</button>
                   <button onClick={() => { setMenuOpen(false); onOpenSettings(); }}>編輯專案</button>

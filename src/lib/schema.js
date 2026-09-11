@@ -26,18 +26,93 @@ function isLegacy(data) {
   return Object.values(data.groups || {}).some((g) => Array.isArray(g.members));
 }
 
-/** 把 v1 的資料轉成 v2。已經是 v2 就原樣回傳。 */
+/* ─────────────────────────────────────────────────────────────
+ * 補形狀（hydrate）
+ *
+ * Firebase Realtime Database 會「自動刪掉」三種東西：
+ *   ・空陣列   []   —— 例如群組還沒有人被停用時的 inactiveMemberIds
+ *   ・空物件   {}   —— 例如均分帳目的 splitWeights
+ *   ・值是 null 的欄位 —— 例如沒設密碼的 passwordHash
+ * 存進去再讀出來，這些欄位就整個不見了。程式如果直接寫 g.inactiveMemberIds.includes(...)
+ * 就會當掉。所以每次讀進來都先把形狀補回來，後面的程式一律可以假設欄位都在。
+ *
+ * 另外 Firebase 遇到「中間有洞的陣列」會改回傳物件（{0: 'a', 2: 'c'}），
+ * 所以 list() 也把物件轉回陣列。
+ * ───────────────────────────────────────────────────────────── */
+
+const list = (v) => (Array.isArray(v) ? v.filter((x) => x != null) : v && typeof v === "object" ? Object.values(v) : []);
+const obj = (v) => (v && typeof v === "object" && !Array.isArray(v) ? v : {});
+const orNull = (v) => (v === undefined ? null : v);
+
+function hydrateUser(u) {
+  return {
+    ...u,
+    passwordHash: orNull(u.passwordHash),
+    phone: u.phone ?? "",
+    bankCode: u.bankCode ?? "",
+    bankAccount: u.bankAccount ?? "",
+    otherPayment: u.otherPayment ?? "",
+    disabled: !!u.disabled,
+    virtual: !!u.virtual,
+    ownerGroupId: orNull(u.ownerGroupId),
+  };
+}
+
+function hydrateGroup(g) {
+  return {
+    ...g,
+    description: g.description ?? "",
+    memberIds: list(g.memberIds),
+    adminIds: list(g.adminIds),
+    inactiveMemberIds: list(g.inactiveMemberIds),
+  };
+}
+
+function hydrateProject(p) {
+  return {
+    ...p,
+    description: p.description ?? "",
+    memberIds: list(p.memberIds),
+    collectorId: orNull(p.collectorId),
+    createdBy: orNull(p.createdBy),
+  };
+}
+
+function hydrateExpense(e) {
+  const out = {
+    ...e,
+    note: e.note ?? "",
+    createdBy: orNull(e.createdBy),
+    lastEditedBy: orNull(e.lastEditedBy),
+  };
+  // 轉帳沒有付款人／分攤，其他類型才補，免得轉帳多出一堆空欄位
+  if ((e.itemType || "expense") !== "transfer") {
+    out.payers = list(e.payers);
+    out.splitMemberIds = list(e.splitMemberIds);
+    out.splitWeights = obj(e.splitWeights);
+    out.splitAmounts = obj(e.splitAmounts);
+  }
+  return out;
+}
+
+const mapValues = (m, fn) => Object.fromEntries(Object.entries(obj(m)).map(([k, v]) => [k, fn(v || {})]));
+
+/** 把從任何地方讀來的 v2 資料補成完整形狀。重複呼叫結果不變。 */
+export function hydrate(data) {
+  const d = obj(data);
+  return {
+    schemaVersion: SCHEMA_VERSION,
+    users: mapValues(d.users, hydrateUser),
+    groups: mapValues(d.groups, hydrateGroup),
+    projects: mapValues(d.projects, hydrateProject),
+    expenses: mapValues(d.expenses, hydrateExpense),
+  };
+}
+
+/** 把 v1 的資料轉成 v2。已經是 v2 就補好形狀後回傳。 */
 export function migrate(data) {
   if (!data || typeof data !== "object") return emptyData();
-  if (!isLegacy(data)) {
-    return {
-      schemaVersion: SCHEMA_VERSION,
-      users: data.users || {},
-      groups: data.groups || {},
-      projects: data.projects || {},
-      expenses: data.expenses || {},
-    };
-  }
+  if (!isLegacy(data)) return hydrate(data);
 
   const users = {};
   const usedNames = new Set();
@@ -99,7 +174,7 @@ export function migrate(data) {
     expenses[e.id] = { ...e, createdBy: e.createdBy ?? e.lastEditedBy ?? null };
   });
 
-  return { schemaVersion: SCHEMA_VERSION, users, groups, projects, expenses };
+  return hydrate({ users, groups, projects, expenses });
 }
 
 /** 清掉沒有歸屬的資料（群組被刪之後殘留的專案／項目）。 */

@@ -1,15 +1,24 @@
 import { useState, useEffect, useCallback, useRef } from "react";
-import { supabaseGet, supabaseSet } from "./supabase.js";
-import { diffData, applyDiff, isEmptyDiff, emptyData } from "./merge.js";
+import { subscribeLedger, subscribeConnection, writeUpdates } from "./db/index.js";
+import { diffData, isEmptyDiff, emptyData, pruneOrphans } from "./merge.js";
+import { diffToUpdates } from "./fbShape.js";
 import { migrate } from "./schema.js";
-import { POLL_INTERVAL_MS } from "../constants.js";
+
+// 第一次載入最多等多久。Firebase 斷線時不會報錯、只會一直等，
+// 不設上限的話使用者會對著「載入中」發呆，不知道是網路問題。
+const FIRST_LOAD_TIMEOUT_MS = 15000;
 
 /**
- * 寫入策略：先讀雲端 → 把「自己動過的那幾筆」套上去 → 再寫回。
- * 兩個人同時記帳時不會互相整包蓋掉。
+ * 整本帳的資料與存檔。
  *
- * 寫入失敗時：畫面保留你剛才的修改（樂觀更新），把 diff 留在佇列裡，
- * 並回報 saveState 讓 UI 明確顯示「還沒存到雲端」，可以手動重試。
+ * 讀取：訂閱一次，之後別人改了什麼資料庫會主動推過來（不再每 20 秒輪詢）。
+ *
+ * 寫入：比對改前改後，只把「動到的那幾筆」送出去（多路徑更新）。
+ * 每筆帳有自己的路徑，兩個人同時記不同的帳不可能互相蓋掉——
+ * 以前要「先讀雲端、合併、再寫回」才做得到，現在是資料結構本身保證的。
+ *
+ * 畫面先更新（樂觀更新），伺服器確認後才算存好。
+ * 離線時寫入會排隊，連線恢復後自動送出；被伺服器拒絕的寫入留著可以重試。
  */
 export function useStore() {
   const [data, setData] = useState(null);
@@ -18,130 +27,114 @@ export function useStore() {
   const [reloadCount, setReloadCount] = useState(0);
   // status: 'idle' | 'saving' | 'error'
   const [saveState, setSaveState] = useState({ status: "idle", error: null, pending: 0 });
-  // 最後一次真的跟雲端對上的時間。自動輪詢、切回分頁、寫入成功都算。
+  const [connected, setConnected] = useState(false);
+  // 最後一次確定跟雲端對上的時間：收到推送、寫入被確認、連線恢復都算
   const [lastSyncedAt, setLastSyncedAt] = useState(null);
 
-  const pendingRef = useRef([]); // 尚未成功寫入雲端的 diff
-  const chainRef = useRef(Promise.resolve());
   const dataRef = useRef(null);
+  const inflightRef = useRef(0); // 已送出、伺服器還沒確認的寫入
+  const failedRef = useRef([]); // 被拒絕的寫入，按「重試」會再送一次
 
   const setBoth = useCallback((next) => {
     dataRef.current = next;
     setData(next);
   }, []);
 
-  /* ---------- 初次載入 ---------- */
+  /* ---------- 訂閱 ---------- */
   useEffect(() => {
-    let cancelled = false;
+    let gotFirst = false;
     setLoading(true);
     setErr(null);
-    (async () => {
-      try {
-        const remote = await supabaseGet(); // 失敗會 throw，不會被誤判成空資料庫
-        if (cancelled) return;
-        // 走到這裡代表讀取成功（失敗會 throw）。所以「空的」就是真的空的，
-        // 直接顯示空畫面讓使用者自己建身分與群組，不寫入任何範例資料。
-        setBoth(remote && remote.groups ? migrate(remote) : emptyData());
-        setLastSyncedAt(Date.now());
-      } catch (e) {
-        if (!cancelled) setErr(e.message || String(e));
-      } finally {
-        if (!cancelled) setLoading(false);
+
+    const timer = setTimeout(() => {
+      if (!gotFirst) {
+        setErr("連不上資料庫（15 秒沒有回應）。請確認網路之後按重試。");
+        setLoading(false);
       }
-    })();
+    }, FIRST_LOAD_TIMEOUT_MS);
+
+    const unsubData = subscribeLedger(
+      (raw) => {
+        // raw 是 null 代表伺服器確認過「真的沒有資料」，不是讀取失敗（失敗走下面的 onError）。
+        // 空的就顯示空畫面，絕對不自動寫入任何範例資料。
+        setBoth(raw ? pruneOrphans(migrate(raw)) : emptyData());
+        setLastSyncedAt(Date.now());
+        if (!gotFirst) {
+          gotFirst = true;
+          clearTimeout(timer);
+          setErr(null); // 逾時訊息出現後才連上的話，自動收掉
+          setLoading(false);
+        }
+      },
+      (e) => {
+        clearTimeout(timer);
+        setErr(e?.message || String(e));
+        setLoading(false);
+      }
+    );
+
+    const unsubConn = subscribeConnection((c) => {
+      setConnected(c);
+      if (c) setLastSyncedAt(Date.now());
+    });
+
     return () => {
-      cancelled = true;
+      clearTimeout(timer);
+      unsubData();
+      unsubConn();
     };
   }, [reloadCount, setBoth]);
 
   /* ---------- 寫入 ---------- */
-  const flush = useCallback(async () => {
-    if (pendingRef.current.length === 0) return;
-    const batchSize = pendingRef.current.length;
-    const batch = pendingRef.current.slice(0, batchSize);
-    setSaveState({ status: "saving", error: null, pending: batchSize });
-    try {
-      const remote = await supabaseGet();
-      let merged = remote && remote.groups ? migrate(remote) : emptyData();
-      for (const job of batch) {
-        merged = job.replace ? job.data : applyDiff(merged, job.diff);
-      }
-      await supabaseSet(merged);
-      setLastSyncedAt(Date.now());
-      pendingRef.current = pendingRef.current.slice(batchSize);
-      if (pendingRef.current.length === 0) {
-        // 沒有更新的本地修改在排隊，才把合併結果（含別人的新紀錄）套回畫面
-        setBoth(merged);
-        setSaveState({ status: "idle", error: null, pending: 0 });
-      } else {
-        setSaveState({ status: "saving", error: null, pending: pendingRef.current.length });
-      }
-    } catch (e) {
-      setSaveState({ status: "error", error: e.message || String(e), pending: pendingRef.current.length });
-      throw e;
-    }
-  }, [setBoth]);
+  const refreshSaveState = useCallback((error) => {
+    const pending = inflightRef.current + failedRef.current.length;
+    if (failedRef.current.length > 0) setSaveState({ status: "error", error, pending });
+    else if (inflightRef.current > 0) setSaveState({ status: "saving", error: null, pending });
+    else setSaveState({ status: "idle", error: null, pending: 0 });
+  }, []);
 
-  const schedule = useCallback(() => {
-    // 串成一條鏈，避免多次「讀→改→寫」互相插隊
-    chainRef.current = chainRef.current.then(
-      () => flush().catch(() => {}),
-      () => flush().catch(() => {})
-    );
-  }, [flush]);
-
-  const persist = useCallback(
-    (updater, options = {}) => {
-      const prev = dataRef.current;
-      const next = typeof updater === "function" ? updater(prev) : updater;
-      if (options.replace) {
-        pendingRef.current = [{ replace: true, data: next }];
-      } else {
-        const diff = diffData(prev, next);
-        if (isEmptyDiff(diff)) return;
-        pendingRef.current = [...pendingRef.current, { diff }];
-      }
-      setBoth(next); // 樂觀更新：畫面先反應，雲端稍後跟上
-      schedule();
+  const send = useCallback(
+    (updates) => {
+      inflightRef.current += 1;
+      refreshSaveState(null);
+      writeUpdates(updates).then(
+        () => {
+          inflightRef.current -= 1;
+          setLastSyncedAt(Date.now());
+          refreshSaveState(null);
+        },
+        (e) => {
+          inflightRef.current -= 1;
+          failedRef.current.push(updates);
+          refreshSaveState(e?.message || String(e));
+        }
+      );
     },
-    [schedule, setBoth]
+    [refreshSaveState]
   );
 
+  const persist = useCallback(
+    (updater) => {
+      const prev = dataRef.current;
+      const next = typeof updater === "function" ? updater(prev) : updater;
+      const diff = diffData(prev, next);
+      if (isEmptyDiff(diff)) return;
+      setBoth(next); // 樂觀更新：畫面先反應
+      send(diffToUpdates(diff));
+    },
+    [send, setBoth]
+  );
+
+  /** 把被拒絕的寫入按原本順序合成一次再送（後面的蓋前面的，跟當初的操作順序一致）。 */
   const retrySave = useCallback(() => {
-    schedule();
-  }, [schedule]);
-
-  /* ---------- 讀取（背景輪詢 / 手動同步） ---------- */
-  const refresh = useCallback(async () => {
-    // 還有沒存上去的修改時不要拉遠端，否則會把本地未存的東西蓋掉
-    if (pendingRef.current.length > 0) {
-      schedule();
-      return;
-    }
-    try {
-      const fresh = await supabaseGet();
-      setLastSyncedAt(Date.now());
-      if (fresh && fresh.groups && pendingRef.current.length === 0) {
-        setBoth(migrate(fresh));
-      }
-    } catch {
-      // 背景同步失敗就繼續顯示現有資料，不打斷操作
-    }
-  }, [schedule, setBoth]);
-
-  useEffect(() => {
-    const onVisible = () => {
-      if (document.visibilityState === "visible") refresh();
-    };
-    document.addEventListener("visibilitychange", onVisible);
-    const interval = setInterval(refresh, POLL_INTERVAL_MS);
-    return () => {
-      document.removeEventListener("visibilitychange", onVisible);
-      clearInterval(interval);
-    };
-  }, [refresh]);
+    const batch = failedRef.current;
+    failedRef.current = [];
+    const merged = Object.assign({}, ...batch);
+    if (Object.keys(merged).length > 0) send(merged);
+    else refreshSaveState(null);
+  }, [send, refreshSaveState]);
 
   const retry = useCallback(() => setReloadCount((c) => c + 1), []);
 
-  return { data, loading, err, persist, retry, refresh, saveState, retrySave, lastSyncedAt };
+  return { data, loading, err, persist, retry, connected, saveState, retrySave, lastSyncedAt };
 }

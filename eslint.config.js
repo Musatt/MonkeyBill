@@ -51,4 +51,14 @@ export default [
       "no-empty": ["error", { allowEmptyCatch: true }],
     },
   },
+  {
+    // scripts/ 底下是在 node 跑的一次性工具，不是網頁
+    files: ["scripts/**/*.{js,mjs}"],
+    languageOptions: {
+      ecmaVersion: 2023,
+      sourceType: "module",
+      globals: { process: "readonly", console: "readonly", fetch: "readonly", URL: "readonly" },
+    },
+    rules: { "no-undef": "error", "no-unused-vars": "off" },
+  },
 ];

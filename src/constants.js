@@ -1,9 +1,13 @@
 /* 全域常數 */
 
-export const SUPABASE_URL = "https://nalpftuibhsjbtvezssd.supabase.co";
-export const SUPABASE_KEY = "sb_publishable_vo1ST_2Dak_rmIl62kTKww_SMnFWIB6";
-export const SUPABASE_TABLE = "app_data";
-export const RECORD_ID = "main";
+// Firebase 連線設定。從 Firebase 網站「專案設定 → 你的應用程式」複製過來。
+// 這些值本來就會出現在網頁原始碼裡、可以公開（不是密碼），
+// 真正擋人亂寫的是 database.rules.json 裡的安全規則。
+// 還沒填之前是 null，App 會顯示「還沒設定資料庫」而不是當掉。
+export const FIREBASE_CONFIG = null;
+
+// 整本帳放在資料庫的這個路徑底下：/ledger/users、/ledger/expenses…
+export const LEDGER_PATH = "ledger";
 
 // 通用密碼：進入「後臺管理」用的，也是所有身分密碼的後路。
 // 注意這是寫在前端的，任何人打開 DevTools 都看得到——它擋的是手滑，不是有心人。
@@ -23,6 +27,3 @@ export const CATEGORIES = [
 
 export const CURRENCY_DECIMALS = { TWD: 0, JPY: 0, USD: 2, EUR: 2, KRW: 0, CNY: 2, HKD: 2, GBP: 2 };
 export const CURRENCY_LIST = ["TWD", "JPY", "USD", "EUR"];
-
-// 背景輪詢間隔
-export const POLL_INTERVAL_MS = 20000;

@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from "react";
-import { relativeTime } from "../lib/format.js";
+import { syncLabel } from "../lib/format.js";
 import { isVirtual } from "../lib/permissions.js";
 import { BackupPanel } from "./BackupPanel.jsx";
 
@@ -7,13 +7,12 @@ import { BackupPanel } from "./BackupPanel.jsx";
  * 首頁：只顯示自己有份的群組。
  * 建立群組時就可以從現有帳號挑成員。
  */
-export function Home({ me, groups, users, lastSyncedAt, onOpenGroup, onCreateGroup, onLogout, onOpenProfile, data, onRestore, onRefresh }) {
+export function Home({ me, groups, users, lastSyncedAt, onOpenGroup, onCreateGroup, onLogout, onOpenProfile, data, onRestore, connected }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [name, setName] = useState("");
   const [desc, setDesc] = useState("");
   const [picked, setPicked] = useState(() => new Set());
-  const [syncing, setSyncing] = useState(false);
 
   // 虛擬成員只屬於原本那個群組，不能被拉進新群組（要的話在群組裡另外建一個）
   const candidates = useMemo(
@@ -24,14 +23,6 @@ export function Home({ me, groups, users, lastSyncedAt, onOpenGroup, onCreateGro
     [users, me.id]
   );
 
-  const handleRefresh = async () => {
-    setSyncing(true);
-    try {
-      await onRefresh();
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const toggle = (id) =>
     setPicked((prev) => {
@@ -56,7 +47,7 @@ export function Home({ me, groups, users, lastSyncedAt, onOpenGroup, onCreateGro
         <div className="hdr-text">
           <div className="hdr-name" style={{ fontSize: 24 }}>分帳本</div>
           <div className="hdr-sub">
-            你是 {me.name} · {syncing ? "同步中…" : relativeTime(lastSyncedAt)}
+            你是 {me.name} · {syncLabel(connected, lastSyncedAt)}
           </div>
         </div>
         <div className="menu-wrap">
@@ -67,7 +58,6 @@ export function Home({ me, groups, users, lastSyncedAt, onOpenGroup, onCreateGro
             <>
               <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
               <div className="menu-pop" role="menu">
-                <button onClick={() => { setMenuOpen(false); handleRefresh(); }}>立即同步</button>
                 <button onClick={() => { setMenuOpen(false); onOpenProfile(); }}>個人資料</button>
                 <button onClick={() => { setMenuOpen(false); onLogout(); }}>登出</button>
               </div>

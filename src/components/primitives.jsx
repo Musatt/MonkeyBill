@@ -200,12 +200,16 @@ export function CurrencySelect({ value, onChange }) {
 }
 
 /** 寫入雲端的狀態列。存檔失敗必須讓使用者看得到，不能無聲失敗。 */
-export function SaveBanner({ saveState, onRetry }) {
+export function SaveBanner({ saveState, onRetry, connected = true }) {
   if (saveState.status === "idle") return null;
   if (saveState.status === "saving") {
     return (
       <div className="save-banner save-banner-saving">
-        <span className="save-banner-text">儲存中…</span>
+        <span className="save-banner-text">
+          {connected
+            ? "儲存中…"
+            : `離線中：有 ${saveState.pending} 筆修改在排隊，網路恢復後會自動存上去。先別關掉這個頁面。`}
+        </span>
       </div>
     );
   }

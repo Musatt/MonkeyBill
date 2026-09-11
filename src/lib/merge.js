@@ -1,6 +1,6 @@
-/* 逐筆合併：兩個人同時記帳時，只覆寫自己動過的那幾筆，不整包蓋掉對方的紀錄。 */
+/* 算出「這次操作動到了哪幾筆」，只把那幾筆送去資料庫，不整包覆寫。 */
 
-import { SCHEMA_VERSION, emptyData, pruneOrphans } from "./schema.js";
+import { emptyData, pruneOrphans } from "./schema.js";
 
 const KINDS = ["users", "groups", "projects", "expenses"];
 
@@ -24,17 +24,4 @@ export function diffData(prev, next) {
 
 export function isEmptyDiff(diff) {
   return KINDS.every((k) => Object.keys(diff.upsert[k]).length === 0 && diff.remove[k].length === 0);
-}
-
-/** 把「我動過的部分」套到剛從雲端讀回來的資料上。 */
-export function applyDiff(base, diff) {
-  const out = emptyData();
-  for (const kind of KINDS) {
-    const m = { ...(base?.[kind] || {}) };
-    diff.remove[kind].forEach((id) => delete m[id]);
-    Object.assign(m, diff.upsert[kind]);
-    out[kind] = m;
-  }
-  out.schemaVersion = SCHEMA_VERSION;
-  return pruneOrphans(out);
 }

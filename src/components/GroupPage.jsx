@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { todayStr, relativeTime } from "../lib/format.js";
+import { todayStr, syncLabel } from "../lib/format.js";
 import { isProjectSettled } from "../lib/money.js";
 import { isPickable } from "../lib/permissions.js";
 import { DatePickerBox, CurrencySelect } from "./primitives.jsx";
@@ -19,14 +19,13 @@ export function GroupPage({
   onOpenSettings,
   onOpenMembers,
   onShare,
-  onRefresh,
+  connected,
 }) {
   const admins = new Set(group.adminIds || []);
   const activeMembers = group.memberIds.map((id) => users[id]).filter((u) => isPickable(u, group));
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [membersOpen, setMembersOpen] = useState(false); // 預設收合，人多時才不會佔滿畫面
-  const [syncing, setSyncing] = useState(false);
   const [showNew, setShowNew] = useState(false);
   const [pname, setPname] = useState("");
   const [pdesc, setPdesc] = useState("");
@@ -43,15 +42,6 @@ export function GroupPage({
       return next;
     });
 
-  const handleRefresh = async () => {
-    setSyncing(true);
-    setMenuOpen(false);
-    try {
-      await onRefresh();
-    } finally {
-      setSyncing(false);
-    }
-  };
 
   const sortedProjects = [...projects].sort((a, b) => (b.date || "").localeCompare(a.date || ""));
   const unsettled = sortedProjects.filter((p) => !isProjectSettled(p, expenses.filter((e) => e.projectId === p.id))).length;
@@ -64,7 +54,7 @@ export function GroupPage({
           <div className="hdr-name">{group.name}</div>
           <div className="hdr-sub">
             你是 {users[myId]?.name || "?"}
-            {isAdmin && " · 管理者"} · {syncing ? "同步中…" : relativeTime(lastSyncedAt)}
+            {isAdmin && " · 管理者"} · {syncLabel(connected, lastSyncedAt)}
           </div>
         </div>
         <div className="menu-wrap">
@@ -75,7 +65,6 @@ export function GroupPage({
             <>
               <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
               <div className="menu-pop" role="menu">
-                <button onClick={handleRefresh}>立即同步</button>
                 <button onClick={() => { setMenuOpen(false); onShare(); }}>分享群組</button>
                 {isAdmin && <button onClick={() => { setMenuOpen(false); onOpenMembers(); }}>管理成員</button>}
                 {isAdmin && <button onClick={() => { setMenuOpen(false); onOpenSettings(); }}>編輯群組</button>}

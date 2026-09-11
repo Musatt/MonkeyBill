@@ -3,8 +3,15 @@
 // Firebase 連線設定。從 Firebase 網站「專案設定 → 你的應用程式」複製過來。
 // 這些值本來就會出現在網頁原始碼裡、可以公開（不是密碼），
 // 真正擋人亂寫的是 database.rules.json 裡的安全規則。
-// 還沒填之前是 null，App 會顯示「還沒設定資料庫」而不是當掉。
-export const FIREBASE_CONFIG = null;
+export const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCMGB9WsJf4XCFGCedYOPY-bV-uqIe-aDY",
+  authDomain: "monkey-bill.firebaseapp.com",
+  databaseURL: "https://monkey-bill-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "monkey-bill",
+  storageBucket: "monkey-bill.firebasestorage.app",
+  messagingSenderId: "130584232974",
+  appId: "1:130584232974:web:76c7bfb3eee13be096a85f",
+};
 
 // 整本帳放在資料庫的這個路徑底下：/ledger/users、/ledger/expenses…
 export const LEDGER_PATH = "ledger";

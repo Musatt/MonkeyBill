@@ -60,9 +60,19 @@ export function subscribeLedger(onData) {
   };
 }
 
+// 在 console 打 __mockSetConnected(false) 模擬斷線、__mockSetConnected(true) 恢復
+const connListeners = new Set();
+if (typeof window !== "undefined") {
+  window.__mockSetConnected = (c) => connListeners.forEach((fn) => fn(!!c));
+}
+
 export function subscribeConnection(onChange) {
+  connListeners.add(onChange);
   const t = setTimeout(() => onChange(true), LATENCY_MS);
-  return () => clearTimeout(t);
+  return () => {
+    clearTimeout(t);
+    connListeners.delete(onChange);
+  };
 }
 
 export async function writeUpdates(updates) {

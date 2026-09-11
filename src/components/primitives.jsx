@@ -1,6 +1,6 @@
 import React, { useState } from "react";
 import { CATEGORIES, CURRENCY_LIST } from "../constants.js";
-import { formatMoney } from "../lib/format.js";
+import { formatMoney, syncLabel } from "../lib/format.js";
 
 export function Chip({ color, children }) {
   return (
@@ -200,6 +200,13 @@ export function CurrencySelect({ value, onChange }) {
 }
 
 /** 寫入雲端的狀態列。存檔失敗必須讓使用者看得到，不能無聲失敗。 */
+/** 標題列的斷線提示。連線正常時什麼都不畫（連前面的「·」也不畫）。 */
+export function SyncNote({ connected, lastSyncedAt }) {
+  const text = syncLabel(connected, lastSyncedAt);
+  if (!text) return null;
+  return <span className="sync-off"> · {text}</span>;
+}
+
 export function SaveBanner({ saveState, onRetry, connected = true }) {
   if (saveState.status === "idle") return null;
   if (saveState.status === "saving") {

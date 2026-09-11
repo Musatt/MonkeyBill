@@ -1,7 +1,8 @@
 import React, { useState, useMemo } from "react";
-import { syncLabel } from "../lib/format.js";
+
 import { isVirtual } from "../lib/permissions.js";
 import { BackupPanel } from "./BackupPanel.jsx";
+import { SyncNote } from "./primitives.jsx";
 
 /**
  * 首頁：只顯示自己有份的群組。
@@ -47,7 +48,8 @@ export function Home({ me, groups, users, lastSyncedAt, onOpenGroup, onCreateGro
         <div className="hdr-text">
           <div className="hdr-name" style={{ fontSize: 24 }}>分帳本</div>
           <div className="hdr-sub">
-            你是 {me.name} · {syncLabel(connected, lastSyncedAt)}
+            你是 {me.name}
+            <SyncNote connected={connected} lastSyncedAt={lastSyncedAt} />
           </div>
         </div>
         <div className="menu-wrap">

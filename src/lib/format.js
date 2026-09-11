@@ -70,11 +70,11 @@ export function formatTimestamp(ts) {
 
 /**
  * 標題列的同步狀態。
- * 連線中就是「即時同步」——別人一改就會推過來，不需要再講「幾秒前同步」。
- * 斷線時才告訴使用者他看到的是多久以前的資料。
+ * 連線正常時回傳空字串：即時同步是理所當然的，不用特別講。
+ * 只有斷線時才出現，告訴使用者他看到的是多久以前的資料——看到這行字就代表有狀況。
  */
 export function syncLabel(connected, lastSyncedAt, now = Date.now()) {
-  if (connected) return "即時同步中";
+  if (connected) return "";
   if (!lastSyncedAt) return "連線中…";
   return `離線中 · ${relativeTime(lastSyncedAt, now)}`; // 例如「離線中 · 5 分前同步」
 }

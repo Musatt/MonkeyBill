@@ -8,6 +8,10 @@ import { migrate } from "./schema.js";
 // 不設上限的話使用者會對著「載入中」發呆，不知道是網路問題。
 const FIRST_LOAD_TIMEOUT_MS = 15000;
 
+// 斷線超過這麼久才算「離線」。Firebase 一開始連線、手機切回前景時都會短暫斷一下，
+// 通常一兩秒內就接回來；不等的話每次打開 App 標題列都會閃一下「離線中」。
+const OFFLINE_GRACE_MS = 3000;
+
 /**
  * 整本帳的資料與存檔。
  *
@@ -27,7 +31,8 @@ export function useStore() {
   const [reloadCount, setReloadCount] = useState(0);
   // status: 'idle' | 'saving' | 'error'
   const [saveState, setSaveState] = useState({ status: "idle", error: null, pending: 0 });
-  const [connected, setConnected] = useState(false);
+  // 預設當作連線正常：只有真的斷線超過 OFFLINE_GRACE_MS 才顯示離線
+  const [connected, setConnected] = useState(true);
   // 最後一次確定跟雲端對上的時間：收到推送、寫入被確認、連線恢復都算
   const [lastSyncedAt, setLastSyncedAt] = useState(null);
 
@@ -73,13 +78,20 @@ export function useStore() {
       }
     );
 
+    let offlineTimer = null;
     const unsubConn = subscribeConnection((c) => {
-      setConnected(c);
-      if (c) setLastSyncedAt(Date.now());
+      clearTimeout(offlineTimer);
+      if (c) {
+        setConnected(true);
+        setLastSyncedAt(Date.now());
+      } else {
+        offlineTimer = setTimeout(() => setConnected(false), OFFLINE_GRACE_MS);
+      }
     });
 
     return () => {
       clearTimeout(timer);
+      clearTimeout(offlineTimer);
       unsubData();
       unsubConn();
     };

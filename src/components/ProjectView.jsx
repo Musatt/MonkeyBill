@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
-import { todayStr, nowHHMM, syncLabel } from "../lib/format.js";
+import { todayStr, nowHHMM } from "../lib/format.js";
+import { SyncNote } from "./primitives.jsx";
 import { isPickable } from "../lib/permissions.js";
 import { memberIdsUsedByExpense } from "../lib/schema.js";
 import { exportCSV } from "../lib/exportCsv.js";
@@ -111,8 +112,8 @@ export function ProjectView({
         <div className="hdr-text">
           <div className="hdr-name">{project.name}</div>
           <div className="hdr-sub">
-            {group.name} · 你是 {membersById[myId]?.name || "?"} ·{" "}
-            {syncLabel(connected, lastSyncedAt)}
+            {group.name} · 你是 {membersById[myId]?.name || "?"}
+            <SyncNote connected={connected} lastSyncedAt={lastSyncedAt} />
           </div>
         </div>
         {!editor && (

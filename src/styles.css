@@ -491,6 +491,8 @@ select.input {
   color: var(--text-dim); font-size: var(--fs-meta); margin-top: 1px;
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
+/* 斷線提示：平常不出現，一出現就要看得到，所以用黃色 */
+.sync-off { color: var(--accent-2); font-weight: 700; }
 .icon-btn {
   width: 36px; height: 36px; flex-shrink: 0; border-radius: 8px; cursor: pointer;
   background: var(--surface-2); border: 1px solid var(--border); color: var(--text);

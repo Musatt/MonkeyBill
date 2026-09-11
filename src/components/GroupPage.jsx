@@ -1,8 +1,8 @@
 import React, { useState } from "react";
-import { todayStr, syncLabel } from "../lib/format.js";
+import { todayStr } from "../lib/format.js";
 import { isProjectSettled } from "../lib/money.js";
 import { isPickable } from "../lib/permissions.js";
-import { DatePickerBox, CurrencySelect } from "./primitives.jsx";
+import { DatePickerBox, CurrencySelect, SyncNote } from "./primitives.jsx";
 
 export function GroupPage({
   group,
@@ -54,7 +54,8 @@ export function GroupPage({
           <div className="hdr-name">{group.name}</div>
           <div className="hdr-sub">
             你是 {users[myId]?.name || "?"}
-            {isAdmin && " · 管理者"} · {syncLabel(connected, lastSyncedAt)}
+            {isAdmin && " · 管理者"}
+            <SyncNote connected={connected} lastSyncedAt={lastSyncedAt} />
           </div>
         </div>
         <div className="menu-wrap">

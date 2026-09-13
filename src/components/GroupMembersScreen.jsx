@@ -108,8 +108,8 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
     return (
       <div key={u.id} className={"member-order-row" + (isInactive ? " member-order-row-off" : "")}>
         <span className="member-order-name">
-          {u.name}
-          {u.id === myId && <span className="row-me-tag">你</span>}
+          {/* 「我」不另外掛標籤，名字換顏色就看得出來 */}
+          <span className={u.id === myId ? "name-me" : undefined}>{u.name}</span>
           {virtual && <span className="virtual-tag">虛擬</span>}
           {isAdmin && <span className="admin-tag">管理者</span>}
           {isInactive && <span className="off-tag">已停用</span>}

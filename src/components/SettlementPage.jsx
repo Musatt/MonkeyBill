@@ -2,14 +2,35 @@ import React, { useState, useMemo } from "react";
 import { formatMoney, formatSigned, projectDecimals } from "../lib/format.js";
 import { computeBalances, reconcileBalances, simplifyDebts, oneCollectorSettlement, biggestPrepayer } from "../lib/money.js";
 
-/** 可以收合的區塊標題：左邊標題、中間一句摘要（收合時也看得到重點）、右邊箭頭 */
-function FoldHead({ title, summary, open, onToggle }) {
-  return (
-    <button className="fold-head" onClick={onToggle} aria-expanded={open}>
-      <span className="fold-title">{title}</span>
-      {summary && <span className="fold-summary">{summary}</span>}
-      <span className={"caret" + (open ? " caret-open" : "")}>›</span>
+/*
+  這一頁有三種不同性質的東西，刻意做成三種長相，一眼分得出來：
+    ・資料卡（目前餘額）   —— 實線卡片＋頂部標題列，每人一條長短代表金額的色條
+    ・設定列（結算方式）   —— 虛線框＋「變更」鍵，看起來就是可以調的開關
+    ・收付款卡（我的／其他人的）—— 同一種卡片、同一種標題與列，只差邊框顏色
+*/
+
+/** 收付款卡的標題：小字標籤＋大字重點，跟「我的收付款」卡片一樣的排法 */
+function HeroHead({ label, value, tone, side, open, onToggle }) {
+  const inner = (
+    <>
+      <div className="hero-head-text">
+        <div className="settle-hero-label">{label}</div>
+        <div className={"settle-hero-value mono" + (tone ? " " + tone : "")}>{value}</div>
+      </div>
+      {onToggle && (
+        <span className="hero-head-side">
+          {side}
+          <span className={"caret" + (open ? " caret-open" : "")}>›</span>
+        </span>
+      )}
+    </>
+  );
+  return onToggle ? (
+    <button className="hero-head hero-head-btn" onClick={onToggle} aria-expanded={open}>
+      {inner}
     </button>
+  ) : (
+    <div className="hero-head">{inner}</div>
   );
 }
 
@@ -106,22 +127,25 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
   const settledIds = sortedIds.filter((id) => bucket(reconciled[id] || 0) === 2);
   const allSettled = txns.length === 0;
 
-  const balanceSummary = allSettled
-    ? "全部結清"
-    : [receiveIds.length && `${receiveIds.length} 人該收`, payIds.length && `${payIds.length} 人該付`].filter(Boolean).join(" · ");
+  // 色條長度的基準：全場金額最大的那個人（不分收或付）是滿格
+  const maxAbs = Math.max(0.01, ...sortedIds.map((id) => Math.abs(reconciled[id] || 0)));
 
   const balRow = (id) => {
     const v = reconciled[id] || 0;
     const b = bucket(v);
     const inProject = project.memberIds.includes(id);
+    const pct = b === 2 ? 0 : Math.max(4, (Math.abs(v) / maxAbs) * 100); // 太短的也留一點點，看得出有條
     return (
-      <div key={id} className="bal-row">
+      <div key={id} className={"bal-row" + (b === 2 ? " bal-row-settled" : "")}>
         <span className={"bal-name" + (id === myId ? " name-me" : "")}>
           {membersById[id]?.name || "?"}
-          {!inProject && <span className="bal-out">已不在專案</span>}
+          {!inProject && <span className="bal-out">已離開</span>}
+        </span>
+        <span className="bal-bar-track" aria-hidden="true">
+          {b !== 2 && <span className={"bal-bar " + (b === 0 ? "bal-bar-in" : "bal-bar-out")} style={{ width: `${pct}%` }} />}
         </span>
         <span className={"bal-amt mono" + (b === 0 ? " bal-amt-in" : b === 1 ? " bal-amt-out" : "")}>
-          {b === 2 ? formatMoney(0, currency, decimals) : formatSigned(v, currency, decimals)}
+          {b === 2 ? "已結清" : formatSigned(v, currency, decimals)}
         </span>
       </div>
     );
@@ -134,42 +158,57 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
 
   return (
     <div className="stats">
-      {/* ① 目前餘額：按進結算頁先看大家的狀況 */}
-      <FoldHead title="目前餘額" summary={balanceSummary} open={showBalances} onToggle={() => setShowBalances((v) => !v)} />
-      {showBalances && (
-        <div className="bal-list">
-          {receiveIds.length > 0 && (
-            <div className="bal-group">
-              <div className="bal-group-label">該收錢</div>
-              {receiveIds.map(balRow)}
-            </div>
-          )}
-          {payIds.length > 0 && (
-            <div className="bal-group">
-              <div className="bal-group-label">該付錢</div>
-              {payIds.map(balRow)}
-            </div>
-          )}
-          {settledIds.length > 0 && (
-            <div className="bal-group">
-              <button className="bal-group-label bal-group-toggle" onClick={() => setShowSettled((v) => !v)} aria-expanded={showSettled}>
-                已結清（{settledIds.length}）
-                <span className={"caret" + (showSettled ? " caret-open" : "")}>›</span>
-              </button>
-              {showSettled && settledIds.map(balRow)}
-            </div>
-          )}
-        </div>
-      )}
+      {/* ① 資料卡：目前餘額——按進結算頁先看大家的狀況 */}
+      <section className="sc">
+        <button className="sc-head" onClick={() => setShowBalances((v) => !v)} aria-expanded={showBalances}>
+          <span className="sc-title">目前餘額</span>
+          <span className="sc-chips">
+            {allSettled ? (
+              <span className="sc-chip sc-chip-done">全部結清</span>
+            ) : (
+              <>
+                {receiveIds.length > 0 && <span className="sc-chip sc-chip-in">{receiveIds.length} 人該收</span>}
+                {payIds.length > 0 && <span className="sc-chip sc-chip-out">{payIds.length} 人該付</span>}
+              </>
+            )}
+          </span>
+          <span className={"caret" + (showBalances ? " caret-open" : "")}>›</span>
+        </button>
+        {showBalances && (
+          <div className="sc-body">
+            {receiveIds.length > 0 && (
+              <>
+                <div className="bal-group-label bal-group-in">該收錢</div>
+                {receiveIds.map(balRow)}
+              </>
+            )}
+            {payIds.length > 0 && (
+              <>
+                <div className="bal-group-label bal-group-out">該付錢</div>
+                {payIds.map(balRow)}
+              </>
+            )}
+            {settledIds.length > 0 && (
+              <>
+                <button className="bal-settled-toggle" onClick={() => setShowSettled((v) => !v)} aria-expanded={showSettled}>
+                  已結清 {settledIds.length} 人
+                  <span className={"caret" + (showSettled ? " caret-open" : "")}>›</span>
+                </button>
+                {showSettled && settledIds.map(balRow)}
+              </>
+            )}
+          </div>
+        )}
+      </section>
 
-      {/* ② 結算方式：底下的收付款都是照這個設定算出來的 */}
-      <FoldHead
-        title="結算方式"
-        summary={oneMode ? `${membersById[collectorId]?.name || "?"} 全收發` : "最少轉帳次數"}
-        open={showSettings}
-        onToggle={() => setShowSettings((v) => !v)}
-      />
-      {showSettings && (
+      {/* ② 設定列：結算方式——底下的收付款都是照這個設定算出來的 */}
+      <section className={"setting" + (showSettings ? " setting-open" : "")}>
+        <button className="setting-head" onClick={() => setShowSettings((v) => !v)} aria-expanded={showSettings}>
+          <span className="setting-label">結算方式</span>
+          <span className="setting-value">{oneMode ? `${membersById[collectorId]?.name || "?"} 全收發` : "最少轉帳次數"}</span>
+          <span className="setting-btn">{showSettings ? "收起" : "變更"}</span>
+        </button>
+        {showSettings && (
         <div className="settle-mode-body">
           <div className="seg">
             <button className={oneMode ? "on" : ""} onClick={() => onModeChange("one", collectorId)}>
@@ -202,23 +241,22 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
             每人金額無條件進位至{decimals === 0 ? "整數" : `小數 ${decimals} 位`}，最大收款人吸收尾差，確保總和為 0。
           </div>
         </div>
-      )}
+        )}
+      </section>
 
-      {/* ③ 收付款明細：我的直接攤開，其他人的收合 */}
-      <div className="sec-head">收付款</div>
+      {/* ③ 收付款卡：我的直接攤開；其他人的用同一種卡片，收合在標題列 */}
       {allSettled ? (
         <div className="settle-hero settle-hero-done">
-          <div className="settle-hero-label">全部結清</div>
-          <div className="settle-hero-value">帳目已結清 🎉</div>
+          <HeroHead label="全部結清" value="帳目已結清 🎉" />
           <div className="stat-panel-note">沒有任何人需要再轉帳。</div>
         </div>
       ) : (
         <>
           <div className={"settle-hero" + (iAmSettled ? " settle-hero-done" : myNet > 0 ? " settle-hero-in" : " settle-hero-out")}>
-            <div className="settle-hero-label">{iAmSettled ? "你的部分" : myNet > 0 ? "你可以收回" : "你要付出"}</div>
-            <div className="settle-hero-value mono">
-              {iAmSettled ? "已結清" : formatMoney(Math.abs(myNet), currency, decimals)}
-            </div>
+            <HeroHead
+              label={iAmSettled ? "你的收付款" : myNet > 0 ? "你可以收回" : "你要付出"}
+              value={iAmSettled ? "已結清" : formatMoney(Math.abs(myNet), currency, decimals)}
+            />
             {myTxns.length > 0 ? (
               <div className="settle-hero-list">
                 {myTxns.map((t, i) => (
@@ -231,21 +269,22 @@ export function SettlementPage({ project, expenses, membersById, myId, onModeCha
           </div>
 
           {otherTxns.length > 0 && (
-            <>
-              <FoldHead
-                title="其他人的收付款"
-                summary={`${otherTxns.length} 筆 · 可以幫忙登記`}
+            <div className="settle-hero settle-hero-others">
+              <HeroHead
+                label="其他人的收付款"
+                value={`${otherTxns.length} 筆`}
+                side={showOthers ? "收起" : "展開・可幫忙登記"}
                 open={showOthers}
                 onToggle={() => setShowOthers((v) => !v)}
               />
               {showOthers && (
-                <div className="txn-list">
+                <div className="settle-hero-list">
                   {otherTxns.map((t, i) => (
                     <TxnRow key={`${t.from}-${t.to}-${i}`} txn={t} membersById={membersById} currency={currency} decimals={decimals} myId={myId} onPay={setPayModalTxn} />
                   ))}
                 </div>
               )}
-            </>
+            </div>
           )}
         </>
       )}

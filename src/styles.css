@@ -11,6 +11,7 @@
   --accent-2: #E8A33D;
   --on-accent: #FFF3EC;
   --positive: #4CAF7D;
+  --info: #5DA9E8;       /* 中性資訊色（其他人的收付款），跟收綠付紅分開 */
   --radius: 10px;
   --tap: 44px; /* 手指最小可靠點擊尺寸 */
   --tabbar-h: 48px; /* 置頂頁籤的高度，日期帶要黏在它下面 */
@@ -819,11 +820,25 @@ select.input {
 .settle-hero-done .settle-hero-value { font-size: var(--fs-lead); color: var(--text-dim); }
 .settle-hero-list { margin-top: 12px; border-top: 1px solid var(--border); }
 
-/* 結算方式展開後的內容 */
-.settle-mode-body {
-  padding: 12px; margin-top: 8px;
-  background: var(--surface); border: 1px solid var(--border); border-radius: 8px;
+/* ── ③ 收付款卡 ─────────────────────────────────────── */
+.settle-hero { border-width: 2px; margin-top: 12px; }
+.hero-head { display: flex; align-items: flex-end; gap: 10px; }
+.hero-head-text { flex: 1; min-width: 0; }
+.hero-head-btn {
+  width: 100%; text-align: left; background: none; border: none; padding: 0;
+  cursor: pointer; font-family: inherit; color: var(--text);
 }
+.hero-head-side {
+  display: flex; align-items: center; gap: 6px; flex-shrink: 0; padding-bottom: 6px;
+  font-size: var(--fs-meta); color: var(--text-dim); font-weight: 700;
+}
+/* 其他人的收付款：跟我的卡一樣的架構，換成藍色系，跟「收錢綠／付錢紅」都不衝突 */
+.settle-hero-others { border-color: color-mix(in srgb, var(--info) 60%, var(--border)); }
+.settle-hero-others .settle-hero-label { color: var(--info); }
+.settle-hero-others .settle-hero-value { font-size: 24px; }
+
+/* 結算方式展開後的內容 */
+.settle-mode-body { padding: 4px 12px 12px; }
 .settle-mode-sub {
   font-size: var(--fs-micro); color: var(--text-dim); letter-spacing: 0.08em; margin: 12px 0 6px;
 }
@@ -874,48 +889,88 @@ select.input {
 }
 
 
-/* 餘額：該收 / 該付 / 已結清分組 */
-.bal-list { display: flex; flex-direction: column; gap: 14px; }
-.bal-group { display: flex; flex-direction: column; }
+/* ── ① 資料卡：目前餘額 ───────────────────────────── */
+.sc {
+  background: var(--surface); border: 2px solid var(--border); border-radius: 8px;
+  overflow: hidden; margin-top: 6px;
+}
+/* 頂部標題列：比內容深一階的色塊，一看就知道「這是一張卡的標題」 */
+.sc-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  background: var(--surface-2); border: none; cursor: pointer; font-family: inherit; color: var(--text);
+  padding: 10px 12px; min-height: 46px;
+}
+.sc-title { font-size: var(--fs-lead); font-weight: 700; flex-shrink: 0; }
+.sc-chips { display: flex; gap: 5px; flex-wrap: wrap; min-width: 0; }
+.sc-chip {
+  font-size: var(--fs-meta); font-weight: 700; padding: 2px 7px; border-radius: 4px; white-space: nowrap;
+  border: 1px solid;
+}
+.sc-chip-in   { color: var(--positive); border-color: var(--positive); background: color-mix(in srgb, var(--positive) 14%, transparent); }
+.sc-chip-out  { color: var(--accent);   border-color: var(--accent);   background: color-mix(in srgb, var(--accent) 14%, transparent); }
+.sc-chip-done { color: var(--text-dim); border-color: var(--border); }
+.sc-head .caret { margin-left: auto; flex-shrink: 0; }
+.sc-body { padding: 4px 12px 10px; border-top: 2px solid var(--border); }
+
+/* 分組小標：直接用顏色表示是收還是付 */
 .bal-group-label {
-  font-size: var(--fs-micro); color: var(--text-dim); letter-spacing: 0.08em;
-  padding-bottom: 4px; border-bottom: 1px solid var(--border);
+  font-size: var(--fs-meta); font-weight: 700; letter-spacing: 0.08em; margin: 10px 0 2px;
 }
-.bal-row {
-  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
-  padding: 8px 0; border-bottom: 1px solid color-mix(in srgb, var(--border) 55%, transparent);
+.bal-group-in  { color: var(--positive); }
+.bal-group-out { color: var(--accent); }
+
+/* 每人一列：名字｜長度代表金額的色條｜金額 */
+.bal-row { display: flex; align-items: center; gap: 10px; padding: 6px 0; min-height: 34px; }
+.bal-name {
+  flex: 0 0 4.6em; min-width: 0; font-size: var(--fs-body);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
-.bal-name { font-size: var(--fs-body); min-width: 0; overflow-wrap: anywhere; }
-.bal-out { font-size: var(--fs-micro); color: var(--text-dim); margin-left: 6px; }
+.bal-out { display: block; font-size: var(--fs-micro); color: var(--text-dim); }
+.bal-bar-track { flex: 1; min-width: 24px; height: 10px; background: var(--bg); border-radius: 2px; overflow: hidden; }
+.bal-bar { display: block; height: 100%; }
+.bal-bar-in  { background: var(--positive); }
+.bal-bar-out { background: var(--accent); }
 .bal-amt {
-  font-size: var(--fs-lead); font-weight: 700; flex-shrink: 0; white-space: nowrap;
+  flex: 0 0 auto; min-width: 6.4em; text-align: right;
+  font-size: var(--fs-lead); font-weight: 700; white-space: nowrap;
   font-variant-numeric: tabular-nums; color: var(--text-dim);
 }
-/* 收錢綠、付錢紅。原本用 .text-pos，但它寫在 .bal-amt 前面、強度一樣，被上面的灰色蓋掉了 */
-.bal-amt.bal-amt-in { color: var(--positive); }
+/* 收錢綠、付錢紅（兩個 class 疊起來，才蓋得過上面的灰色） */
+.bal-amt.bal-amt-in  { color: var(--positive); }
 .bal-amt.bal-amt-out { color: var(--accent); }
+.bal-row-settled .bal-name { color: var(--text-dim); }
+.bal-row-settled .bal-amt { font-size: var(--fs-meta); font-weight: 400; }
 
-/* 「已結清」本身也可以收合 */
-.bal-group-toggle {
+.bal-settled-toggle {
   display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
-  background: none; border: none; border-bottom: 1px solid var(--border); cursor: pointer; font-family: inherit;
-  padding: 0 0 4px;
+  background: none; border: none; cursor: pointer; font-family: inherit;
+  color: var(--text-dim); font-size: var(--fs-meta); font-weight: 700; letter-spacing: 0.04em;
+  margin-top: 8px; padding: 8px 0 2px; border-top: 1px dashed var(--border);
 }
-.bal-group-toggle .caret { margin-left: auto; }
+.bal-settled-toggle .caret { margin-left: auto; }
 
-/* 結算頁的收合標題：外觀跟 .sec-head 一樣，右邊多一句摘要和箭頭 */
-.fold-head {
-  display: flex; align-items: baseline; gap: 8px; width: 100%; text-align: left;
-  background: none; border: none; border-bottom: 1px solid var(--border); cursor: pointer; font-family: inherit;
-  margin: 22px 0 8px; padding: 0 0 6px; min-height: 32px; color: var(--text-dim);
+/* ── ② 設定列：結算方式 ───────────────────────────────
+   虛線框、透明底、右邊一顆「變更」鍵——長得像開關，不像資料清單 */
+.setting {
+  border: 2px dashed var(--border); border-radius: 8px; margin-top: 12px;
 }
-.stats > .fold-head:first-child { margin-top: 6px; }
-.fold-title { font-size: var(--fs-meta); font-weight: 700; letter-spacing: 0.08em; flex-shrink: 0; }
-.fold-summary {
-  font-size: var(--fs-body); font-weight: 700; color: var(--text); min-width: 0;
+.setting-open { border-style: solid; border-color: var(--accent-2); }
+.setting-head {
+  display: flex; align-items: center; gap: 8px; width: 100%; text-align: left;
+  background: none; border: none; cursor: pointer; font-family: inherit; color: var(--text);
+  padding: 8px 8px 8px 12px; min-height: 46px;
+}
+.setting-label { font-size: var(--fs-meta); color: var(--text-dim); font-weight: 700; flex-shrink: 0; }
+.setting-value {
+  font-size: var(--fs-body); font-weight: 700; min-width: 0;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.fold-head .caret { margin-left: auto; flex-shrink: 0; }
+.setting-btn {
+  margin-left: auto; flex-shrink: 0;
+  font-size: var(--fs-meta); font-weight: 700; color: var(--accent-2);
+  border: 1px solid var(--accent-2); border-radius: 5px; padding: 5px 10px;
+}
+.setting-open .setting-btn { background: var(--accent-2); color: #1b2027; }
 
 /* ═══════════════════════════════════════════════
    新增／編輯項目表單

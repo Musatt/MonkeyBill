@@ -4,6 +4,7 @@ import { hashPassword, verifyPassword, hasPassword } from "../lib/auth.js";
 import { canLogin } from "../lib/permissions.js";
 import { PinInput } from "./primitives.jsx";
 import { normalizeName, nameError } from "../lib/names.js";
+import { sortByCreation, searchUsers } from "../lib/loginList.js";
 
 /**
  * 開啟 App 的第一關：選身分。
@@ -20,31 +21,18 @@ export function LoginScreen({ users, groups, onLogin, onCreate, onBackstage }) {
   const [newPw1, setNewPw1] = useState("");
   const [newPw2, setNewPw2] = useState("");
 
+  const [query, setQuery] = useState("");
+  const [menuOpen, setMenuOpen] = useState(false);
+
   // 虛擬成員在這裡整個不出現——這就是它存在的理由：
   // 沒設密碼的身分等於一扇沒鎖的門，虛擬成員連門都不掛出來。
-  const active = Object.values(users)
-    .filter(canLogin)
-    .sort((a, b) => a.name.localeCompare(b.name, "zh-Hant"));
-
-  // 依群組分區，人多的時候才找得到自己。
-  // 同一個人若在多個群組，每個群組底下都會出現一次——刻意的，哪一區找到都一樣。
-  const sections = useMemo(() => {
-    const byId = Object.fromEntries(active.map((u) => [u.id, u]));
-    const out = Object.values(groups || {})
-      .map((g) => ({
-        key: g.id,
-        title: g.name,
-        members: g.memberIds.map((id) => byId[id]).filter(Boolean),
-      }))
-      .filter((s) => s.members.length > 0)
-      .sort((a, b) => a.title.localeCompare(b.title, "zh-Hant"));
-
-    // 還沒被加進任何群組的帳號單獨一區，否則他們會找不到自己
-    const inAnyGroup = new Set(out.flatMap((s) => s.members.map((m) => m.id)));
-    const orphans = active.filter((u) => !inAnyGroup.has(u.id));
-    if (orphans.length > 0) out.push({ key: "__none__", title: "還沒加入群組", members: orphans });
-    return out;
-  }, [active, groups]);
+  // 不依群組分區：分區會把群組名稱秀給每個打開網站的人看。
+  const active = useMemo(
+    () => sortByCreation(Object.values(users).filter(canLogin), groups),
+    [users, groups]
+  );
+  const matches = useMemo(() => searchUsers(active, query), [active, query]);
+  const searching = !!normalizeName(query);
 
   const pick = (u) => {
     setError("");
@@ -162,37 +150,88 @@ export function LoginScreen({ users, groups, onLogin, onCreate, onBackstage }) {
   /* ---------- 選身分 ---------- */
   return (
     <div className="screen">
-      <div className="app-title-block" style={{ display: "block" }}>
-        <div className="app-title">分帳本</div>
-        <div className="app-sub">朋友之間，帳算清楚，感情才長久</div>
+      {/* 建立身分與後臺放在最上面：人多的時候名單很長，放底下會被擠到很難找 */}
+      <div className="hdr">
+        <div className="hdr-text">
+          <div className="hdr-name" style={{ fontSize: 24 }}>分帳本</div>
+          <div className="hdr-sub">朋友之間，帳算清楚，感情才長久</div>
+        </div>
+        <button className="login-create" onClick={() => setMode("create")}>＋ 建立身分</button>
+        <div className="menu-wrap">
+          <button className="icon-btn" onClick={() => setMenuOpen((v) => !v)} aria-label="更多" aria-expanded={menuOpen}>
+            ⋯
+          </button>
+          {menuOpen && (
+            <>
+              <div className="menu-backdrop" onClick={() => setMenuOpen(false)} />
+              <div className="menu-pop" role="menu">
+                <button onClick={() => { setMenuOpen(false); onBackstage(); }}>後臺管理</button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
 
-      <div className="section-label">你是誰？</div>
       {active.length === 0 ? (
-        <div className="empty-hint">還沒有任何身分，建立第一個吧</div>
+        <div className="empty-hint" style={{ marginTop: 12 }}>還沒有任何身分，按右上角「建立身分」建立第一個</div>
       ) : (
-        sections.map((s) => (
-          <div key={s.key} className="login-section">
-            <div className="login-section-title">{s.title}</div>
+        <>
+          {/* 搜尋框黏在畫面上方，名單滑到很下面也還打得到字 */}
+          <div className="login-search">
+            <input
+              className="input"
+              type="search"
+              enterKeyHint="go"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              onKeyDown={(e) => {
+                // 只剩一個人時直接按 Enter 就是選他
+                if (e.key === "Enter" && matches.length === 1) pick(matches[0]);
+              }}
+              placeholder="搜尋名字"
+              aria-label="搜尋名字"
+            />
+            {query && (
+              <button className="login-search-clear" onClick={() => setQuery("")} aria-label="清除搜尋">
+                ×
+              </button>
+            )}
+          </div>
+
+          <div className="sec-head sec-head-tight">
+            {searching ? "找到" : "你是誰？"} <span className="sec-head-n">{matches.length}</span> 人
+          </div>
+
+          {matches.length > 0 ? (
             <div className="member-pick-grid">
-              {s.members.map((u) => (
+              {matches.map((u) => (
                 <button key={u.id} className="member-pick" onClick={() => pick(u)}>
                   {u.name}
                   {hasPassword(u) && <span className="lock-mark"> 🔒</span>}
                 </button>
               ))}
             </div>
-          </div>
-        ))
+          ) : (
+            <div className="empty-hint">
+              找不到「{normalizeName(query)}」
+              {/* 名字可以用才提供快捷建立；被別人（含看不到的虛擬成員）用掉就不提，免得透露有這個人 */}
+              {!nameError(query, users) && (
+                <div style={{ marginTop: 10 }}>
+                  <button
+                    className="btn-outline"
+                    onClick={() => {
+                      setNewName(normalizeName(query));
+                      setMode("create");
+                    }}
+                  >
+                    用「{normalizeName(query)}」建立新身分
+                  </button>
+                </div>
+              )}
+            </div>
+          )}
+        </>
       )}
-
-      <button className="btn-outline full-width" style={{ marginTop: 16 }} onClick={() => setMode("create")}>
-        ＋ 建立新身分
-      </button>
-
-      <button className="link-btn" style={{ marginTop: 20, alignSelf: "center" }} onClick={onBackstage}>
-        後臺管理
-      </button>
     </div>
   );
 }

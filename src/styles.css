@@ -457,11 +457,24 @@ select.input {
 .member-order-row { flex-wrap: wrap; row-gap: 5px; padding: 5px 6px 5px 9px; }
 .member-order-name { flex: 1 1 40%; min-width: 88px; }
 
-/* 登入畫面依群組分區 */
-.login-section { margin-bottom: 16px; }
-.login-section-title {
-  font-size: 12px; color: var(--accent); font-weight: 700; letter-spacing: 0.06em;
-  margin: 0 0 6px 2px;
+/* 登入畫面：建立身分鍵放右上角，搜尋框黏在畫面上方 */
+.login-create {
+  flex-shrink: 0; cursor: pointer; font-family: inherit; white-space: nowrap;
+  background: var(--accent); color: var(--on-accent); border: none;
+  border-radius: 6px; padding: 8px 11px; min-height: 36px;
+  font-size: var(--fs-body); font-weight: 700;
+}
+.login-search {
+  position: sticky; top: var(--sa-top); z-index: 20;
+  background: var(--bg); padding: 6px 0 10px; margin-top: 4px;
+}
+.login-search .input { margin-top: 0; padding-right: 40px; }
+/* 拿掉瀏覽器自帶的搜尋清除鈕，用自己的（各家長得不一樣、iPhone 上很小） */
+.login-search .input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+.login-search-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%); margin-top: -2px;
+  width: 32px; height: 32px; border: none; background: none; cursor: pointer;
+  color: var(--text-dim); font-size: 20px; line-height: 1;
 }
 
 /* ═══════════════════════════════════════════════

@@ -2,6 +2,7 @@ import React, { useState, useMemo } from "react";
 import { memberIdsUsedByExpense, demoteToVirtualCheck } from "../lib/schema.js";
 import { isVirtual } from "../lib/permissions.js";
 import { hashPassword } from "../lib/auth.js";
+import { PinInput } from "./primitives.jsx";
 
 /**
  * 後臺管理。因為一般流程不開放刪帳號，這裡是唯一能停用／刪除帳號的地方，
@@ -173,12 +174,12 @@ export function BackstageScreen({ data, onExit, actions }) {
                   轉成正式帳號之後他就會出現在登入畫面、可以自己進來，也能被加進別的群組。
                   歷史帳目完全不動。
                 </div>
-                <label className="form-label">密碼（可留空）</label>
-                <input
-                  className="input mono"
-                  type="password"
+                <label className="form-label">密碼（數字，可留空）</label>
+                <PinInput
+                  digitsOnly
+                  autoComplete="new-password"
                   value={convertPw}
-                  onChange={(e) => setConvertPw(e.target.value)}
+                  onChange={setConvertPw}
                   placeholder="留空的話任何人都能選他的身分"
                 />
               </>

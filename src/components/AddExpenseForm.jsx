@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useTypingOnTouch } from "../lib/useTypingOnTouch.js";
 import { CATEGORIES } from "../constants.js";
 import { todayStr, nowHHMM, formatMoney, formatTimestamp, projectDecimals, uid } from "../lib/format.js";
 import { evalAmount, isExpression, groupDigits } from "../lib/calc.js";
@@ -89,6 +90,7 @@ function AmountKeypad({ initial, currency, decimals, onCancel, onConfirm }) {
 }
 
 export function AddExpenseForm({ project, allMembers, memberIds, initialValues, isEdit, onSave, onCancel }) {
+  const typing = useTypingOnTouch(); // 手機打字時底部按鈕列不要黏在鍵盤上方
   const projectMembers = memberIds.map((id) => allMembers[id]).filter(Boolean);
   const decimals = projectDecimals(project);
 
@@ -536,7 +538,7 @@ export function AddExpenseForm({ project, allMembers, memberIds, initialValues, 
         </div>
       </div>
 
-      <div className="form-actions">
+      <div className={"form-actions" + (typing ? " form-actions-typing" : "")}>
         {!canSubmit && invalidReason && (
           <div className="form-hint hint-warn" style={{ textAlign: "center", marginBottom: 8 }}>{invalidReason}</div>
         )}

@@ -4,7 +4,7 @@ import { nameError, normalizeName } from "../lib/names.js";
 import { isVirtual, canEditIdentity as canEditIdentityOf } from "../lib/permissions.js";
 import { formatSigned, projectDecimals } from "../lib/format.js";
 import { computeBalances, reconcileBalances } from "../lib/money.js";
-import { TopBar } from "./primitives.jsx";
+import { TopBar, PinInput } from "./primitives.jsx";
 
 /**
  * 個人資料。帳號是全域的，所以這一頁不綁群組。
@@ -181,12 +181,12 @@ export function UserProfilePage({ user, data, viewerId, backstage, visibleGroups
                 </div>
               ) : (
                 <div className="card subtle">
-                  <div className="section-label">新密碼（留空＝不需要密碼）</div>
-                  <input className="input mono" type="password" value={pw1} onChange={(e) => setPw1(e.target.value)} autoFocus />
+                  <div className="section-label">新密碼（數字；留空＝不需要密碼）</div>
+                  <PinInput digitsOnly autoComplete="new-password" value={pw1} onChange={setPw1} autoFocus />
                   {pw1 && (
                     <>
                       <div className="section-label" style={{ marginTop: 8 }}>再次輸入</div>
-                      <input className="input mono" type="password" value={pw2} onChange={(e) => setPw2(e.target.value)} />
+                      <PinInput digitsOnly autoComplete="new-password" value={pw2} onChange={setPw2} />
                       {pw2 && pw1 !== pw2 && <div className="hint-text hint-warn">兩次輸入不一致</div>}
                     </>
                   )}

@@ -393,6 +393,11 @@ select.input {
   padding: 10px calc(16px + var(--sa-right)) calc(8px + var(--sa-bottom)) calc(16px + var(--sa-left));
 }
 .form-actions .row-form { margin-top: 0; }
+/* 手機打字時：不黏底部，放回表單最後面，不要佔掉鍵盤上方那一小塊可視範圍 */
+.form-actions-typing { position: static; }
+
+/* 登入密碼底下的「改用一般鍵盤」 */
+.pin-switch { align-self: flex-start; margin-top: 6px; font-size: var(--fs-meta); }
 
 /* 帳號 / 權限相關 */
 .admin-tag {
@@ -838,6 +843,14 @@ select.input {
 }
 .seg button:last-child { border-right: none; }
 .seg button.on { background: var(--accent); color: var(--on-accent); font-weight: 700; }
+
+/* 統計頁的時間區間 */
+.range-block { margin-top: 8px; }
+.seg-4 button { font-size: var(--fs-meta); padding: 8px 2px; min-height: 36px; }
+.range-custom { display: flex; gap: 8px; margin-top: 2px; }
+.range-custom > div { flex: 1; min-width: 0; }
+.range-custom .form-label { margin-top: 8px; }
+.range-hint { font-size: var(--fs-meta); color: var(--text-dim); margin-top: 6px; line-height: 1.6; }
 
 .pick-row { display: flex; flex-wrap: wrap; gap: 5px; }
 .pick {

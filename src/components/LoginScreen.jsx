@@ -2,6 +2,7 @@ import React, { useState, useMemo } from "react";
 import { BACKSTAGE_NAME, MASTER_PASSWORD } from "../constants.js";
 import { hashPassword, verifyPassword, hasPassword } from "../lib/auth.js";
 import { canLogin } from "../lib/permissions.js";
+import { PinInput } from "./primitives.jsx";
 import { normalizeName, nameError } from "../lib/names.js";
 
 /**
@@ -93,12 +94,12 @@ export function LoginScreen({ users, groups, onLogin, onCreate, onBackstage }) {
           <div className="onboard-title">{picked.name}</div>
           <div className="onboard-desc">這個身分有設密碼，請輸入</div>
         </div>
-        <input
-          className="input mono"
-          type="password"
+        <PinInput
+          allowKeyboardSwitch
+          autoComplete="current-password"
           value={pw}
-          onChange={(e) => {
-            setPw(e.target.value);
+          onChange={(v) => {
+            setPw(v);
             setError("");
           }}
           onKeyDown={(e) => {
@@ -133,12 +134,12 @@ export function LoginScreen({ users, groups, onLogin, onCreate, onBackstage }) {
         <input className="input" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="例如：猴子" autoFocus />
         {newNameError && <div className="hint-text hint-warn">{newNameError}</div>}
 
-        <div className="section-label" style={{ marginTop: 12 }}>密碼（可留空）</div>
-        <input className="input mono" type="password" value={newPw1} onChange={(e) => setNewPw1(e.target.value)} placeholder="不想設就留空" />
+        <div className="section-label" style={{ marginTop: 12 }}>密碼（數字，可留空）</div>
+        <PinInput digitsOnly autoComplete="new-password" value={newPw1} onChange={setNewPw1} placeholder="不想設就留空" />
         {newPw1 && (
           <>
             <div className="section-label" style={{ marginTop: 8 }}>再次輸入密碼</div>
-            <input className="input mono" type="password" value={newPw2} onChange={(e) => setNewPw2(e.target.value)} />
+            <PinInput digitsOnly autoComplete="new-password" value={newPw2} onChange={setNewPw2} />
             {pwMismatch && <div className="hint-text hint-warn">兩次輸入不一致</div>}
           </>
         )}
@@ -213,13 +214,12 @@ export function BackstageLogin({ onEnter, onCancel }) {
         <div className="onboard-title">{BACKSTAGE_NAME}</div>
         <div className="onboard-desc">請輸入通用密碼</div>
       </div>
-      <input
-        className="input mono"
-        type="password"
-        inputMode="numeric"
+      <PinInput
+        digitsOnly
+        autoComplete="off"
         value={pw}
-        onChange={(e) => {
-          setPw(e.target.value);
+        onChange={(v) => {
+          setPw(v);
           setError(false);
         }}
         onKeyDown={(e) => {

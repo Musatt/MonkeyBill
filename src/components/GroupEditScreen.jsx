@@ -1,8 +1,10 @@
 import React, { useState } from "react";
+import { useTypingOnTouch } from "../lib/useTypingOnTouch.js";
 import { TopBar } from "./primitives.jsx";
 
 /** 編輯群組：名稱、說明、刪除。成員管理在另一個畫面。 */
 export function GroupEditScreen({ group, projectCount, expenseCount, canDelete, onBack, onSave, onDeleteGroup }) {
+  const typing = useTypingOnTouch(); // 手機打字時底部按鈕列不要黏在鍵盤上方
   const [gname, setGname] = useState(group.name);
   const [gdesc, setGdesc] = useState(group.description || "");
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -45,7 +47,7 @@ export function GroupEditScreen({ group, projectCount, expenseCount, canDelete, 
         </div>
       )}
 
-      <div className="form-actions">
+      <div className={"form-actions" + (typing ? " form-actions-typing" : "")}>
         <div className="row-form">
           <button className="btn-ghost" onClick={onBack}>取消</button>
           <button className="btn-accent" disabled={!gname.trim() || !dirty} onClick={() => onSave(gname.trim(), gdesc.trim())}>

@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef } from "react";
 import { CATEGORIES, CURRENCY_LIST } from "../constants.js";
 import { formatMoney, syncLabel } from "../lib/format.js";
 
@@ -200,6 +200,45 @@ export function CurrencySelect({ value, onChange }) {
 }
 
 /** 寫入雲端的狀態列。存檔失敗必須讓使用者看得到，不能無聲失敗。 */
+/**
+ * 密碼欄位：手機上跳數字鍵盤，不跳英文鍵盤。
+ *
+ * ・digitsOnly（設定新密碼時用）：只收數字，打到英文字會被濾掉。
+ *   這樣之後登入用數字鍵盤一定打得出來。
+ * ・allowKeyboardSwitch（登入時用）：預設數字鍵盤，底下多一個「改用一般鍵盤」。
+ *   以前設過含英文字母的密碼的人，才不會被數字鍵盤鎖在外面。
+ *
+ * inputMode="numeric" 讓 Android 跳數字鍵盤；pattern="[0-9]*" 是 iPhone 要的，少了它 iPhone 會跳帶符號的鍵盤。
+ */
+export function PinInput({ value, onChange, digitsOnly = false, allowKeyboardSwitch = false, ...rest }) {
+  const [letters, setLetters] = useState(false);
+  const ref = useRef(null);
+  const switchKeyboard = () => {
+    setLetters((v) => !v);
+    // 鍵盤種類要重新聚焦才會換
+    setTimeout(() => ref.current && ref.current.focus(), 0);
+  };
+  return (
+    <>
+      <input
+        ref={ref}
+        className="input mono"
+        type="password"
+        inputMode={letters ? "text" : "numeric"}
+        pattern={letters ? undefined : "[0-9]*"}
+        value={value}
+        onChange={(e) => onChange(digitsOnly ? e.target.value.replace(/\D/g, "") : e.target.value)}
+        {...rest}
+      />
+      {allowKeyboardSwitch && (
+        <button type="button" className="link-btn pin-switch" onClick={switchKeyboard}>
+          {letters ? "改回數字鍵盤" : "密碼有英文字母？改用一般鍵盤"}
+        </button>
+      )}
+    </>
+  );
+}
+
 /** 標題列的斷線提示。連線正常時什麼都不畫（連前面的「·」也不畫）。 */
 export function SyncNote({ connected, lastSyncedAt }) {
   const text = syncLabel(connected, lastSyncedAt);

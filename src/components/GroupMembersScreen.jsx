@@ -3,7 +3,7 @@ import { hashPassword } from "../lib/auth.js";
 import { hasRecordsInGroup } from "../lib/schema.js";
 import { nameError, normalizeName } from "../lib/names.js";
 import { isVirtual, canJoinGroup, canDeleteVirtualMember } from "../lib/permissions.js";
-import { TopBar } from "./primitives.jsx";
+import { TopBar, PinInput } from "./primitives.jsx";
 
 /**
  * 群組成員管理（管理者才進得來）。
@@ -207,12 +207,12 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
 
           {adding === "real" && (
             <>
-              <label className="form-label">密碼（可留空）</label>
-              <input
-                className="input mono"
-                type="password"
+              <label className="form-label">密碼（數字，可留空）</label>
+              <PinInput
+                digitsOnly
+                autoComplete="new-password"
                 value={newPw}
-                onChange={(e) => setNewPw(e.target.value)}
+                onChange={setNewPw}
                 placeholder="通常留空，讓本人之後自己設"
               />
               <div className="hint-text">幫朋友建的帳號建議留空密碼，他自己登入後再去個人資料設定。</div>
@@ -237,12 +237,12 @@ export function GroupMembersScreen({ group, data, myId, backstage, onBack, actio
               轉成正式成員之後，他就會出現在登入畫面、可以自己進來，也能被加進別的群組。
               所有歷史帳目完全不動。
             </div>
-            <label className="form-label">密碼（可留空）</label>
-            <input
-              className="input mono"
-              type="password"
+            <label className="form-label">密碼（數字，可留空）</label>
+            <PinInput
+              digitsOnly
+              autoComplete="new-password"
               value={promotePw}
-              onChange={(e) => setPromotePw(e.target.value)}
+              onChange={setPromotePw}
               placeholder="留空的話任何人都能選他的身分"
             />
             <div className="row-form" style={{ marginTop: 12 }}>

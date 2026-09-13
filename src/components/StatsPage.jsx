@@ -1,8 +1,9 @@
 import React, { useState, useMemo } from "react";
 import { CATEGORIES } from "../constants.js";
-import { formatMoney, formatSigned, projectDecimals } from "../lib/format.js";
+import { formatMoney, formatSigned, projectDecimals, todayStr } from "../lib/format.js";
 import { computeBalances, reconcileBalances, computeItemAllocation } from "../lib/money.js";
-import { TruncText } from "./primitives.jsx";
+import { RANGE_MODES, resolveRange, inRange, rangeText } from "../lib/dateRange.js";
+import { TruncText, DatePickerBox } from "./primitives.jsx";
 
 const sortByDateDesc = (arr) => [...arr].sort((a, b) => `${b.date}${b.time}`.localeCompare(`${a.date}${a.time}`));
 
@@ -38,7 +39,7 @@ function StatPanel({ label, value, tone, facts, note }) {
  * 上面一條堆疊條把比例一次講完，下面才是可以展開的明細列——
  * 比原本六條各自為政的長條更快看出「錢主要花在哪」。
  */
-function Composition({ amounts, itemsByCategory, currency, decimals, getAmount, signPrefix }) {
+function Composition({ amounts, itemsByCategory, currency, decimals, getAmount, signPrefix, emptyText = "還沒有紀錄" }) {
   // 用 Set 而不是單一 id：展開一個分類時，其他已經展開的要留著
   const [expandedSet, setExpandedSet] = useState(() => new Set());
   const toggle = (id) =>
@@ -53,7 +54,7 @@ function Composition({ amounts, itemsByCategory, currency, decimals, getAmount, 
   const total = rows.reduce((s, r) => s + r.amount, 0);
   rows.sort((a, b) => b.amount - a.amount);
 
-  if (rows.length === 0) return <div className="empty-hint">還沒有紀錄</div>;
+  if (rows.length === 0) return <div className="empty-hint">{emptyText}</div>;
 
   return (
     <div className="composition">
@@ -121,9 +122,24 @@ export function StatsPage({ project, expenses, membersById, myId }) {
   const viewMemberId = project.memberIds.includes(pickedMemberId) ? pickedMemberId : fallbackMemberId;
   const isSelf = viewMemberId === myId;
 
-  const spendingExpenses = useMemo(() => expenses.filter((e) => (e.itemType || "expense") === "expense"), [expenses]);
-  const collectionExpenses = useMemo(() => expenses.filter((e) => e.itemType === "collection"), [expenses]);
-  const transfers = useMemo(() => expenses.filter((e) => e.itemType === "transfer"), [expenses]);
+  // ── 時間區間：團體與個人共用同一個設定，切換分頁時不會跑掉 ──
+  const today = todayStr();
+  const [rangeMode, setRangeMode] = useState("all");
+  const [customFrom, setCustomFrom] = useState(() => `${today.slice(0, 7)}-01`);
+  const [customTo, setCustomTo] = useState(today);
+  const range = resolveRange(rangeMode, today, { from: customFrom, to: customTo });
+  const rangeFrom = range?.from;
+  const rangeTo = range?.to;
+  const inPeriod = useMemo(
+    () => expenses.filter((e) => inRange(e.date, rangeFrom ? { from: rangeFrom, to: rangeTo } : null)),
+    [expenses, rangeFrom, rangeTo]
+  );
+  const emptyText = range ? "這段期間沒有紀錄" : "還沒有紀錄";
+
+  // 下面的總額、筆數、分類佔比都只算這段期間
+  const spendingExpenses = useMemo(() => inPeriod.filter((e) => (e.itemType || "expense") === "expense"), [inPeriod]);
+  const collectionExpenses = useMemo(() => inPeriod.filter((e) => e.itemType === "collection"), [inPeriod]);
+  const transfers = useMemo(() => inPeriod.filter((e) => e.itemType === "transfer"), [inPeriod]);
 
   const totalSpend = spendingExpenses.reduce((s, e) => s + e.baseAmount, 0);
   const totalCollected = collectionExpenses.reduce((s, e) => s + e.baseAmount, 0);
@@ -144,6 +160,8 @@ export function StatsPage({ project, expenses, membersById, myId }) {
     return { spend: build(spendingExpenses), collect: build(collectionExpenses) };
   }, [spendingExpenses, collectionExpenses]);
 
+  // 淨額（誰該還誰多少）刻意用「全部」的帳，不跟著時間區間：
+  // 只看本月的淨額沒有意義——上個月墊的錢、上個月的還款都還算數。
   const rawBalances = useMemo(() => computeBalances(project.memberIds, expenses, decimals), [project.memberIds, expenses, decimals]);
   const balances = useMemo(() => reconcileBalances(rawBalances, decimals), [rawBalances, decimals]);
 
@@ -189,6 +207,34 @@ export function StatsPage({ project, expenses, membersById, myId }) {
         <button className={tab === "personal" ? "on" : ""} onClick={() => setTab("personal")}>個人統計</button>
       </div>
 
+      <div className="range-block">
+        <div className="seg seg-4">
+          {RANGE_MODES.map((m) => (
+            <button key={m.id} className={rangeMode === m.id ? "on" : ""} onClick={() => setRangeMode(m.id)}>
+              {m.label}
+            </button>
+          ))}
+        </div>
+        {rangeMode === "custom" && (
+          <div className="range-custom">
+            <div>
+              <label className="form-label">從</label>
+              <DatePickerBox value={customFrom} onChange={setCustomFrom} />
+            </div>
+            <div>
+              <label className="form-label">到</label>
+              <DatePickerBox value={customTo} onChange={setCustomTo} />
+            </div>
+          </div>
+        )}
+        {range && (
+          <div className="range-hint">
+            <span className="mono">{rangeText(range)}</span> · 共 {inPeriod.length} 筆
+            {tab === "personal" && <div>淨額（該還多少）一律算全部時間，其他數字只算這段期間。</div>}
+          </div>
+        )}
+      </div>
+
       {tab === "group" ? (
         <>
           <div className="stat-head">支出</div>
@@ -211,6 +257,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
             decimals={decimals}
             getAmount={(item) => item.baseAmount}
             signPrefix=""
+            emptyText={emptyText}
           />
 
           {totalCollected > 0 && (
@@ -237,6 +284,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
                 decimals={decimals}
                 getAmount={(item) => item.baseAmount}
                 signPrefix="+"
+                emptyText={emptyText}
               />
             </>
           )}
@@ -281,6 +329,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
             decimals={decimals}
             getAmount={(item) => computeItemAllocation(item, decimals).shares[viewMemberId] || 0}
             signPrefix=""
+            emptyText={emptyText}
           />
 
           {personal.collect.total > 0 && (
@@ -293,6 +342,7 @@ export function StatsPage({ project, expenses, membersById, myId }) {
                 decimals={decimals}
                 getAmount={(item) => computeItemAllocation(item, decimals).shares[viewMemberId] || 0}
                 signPrefix="+"
+                emptyText={emptyText}
               />
             </>
           )}

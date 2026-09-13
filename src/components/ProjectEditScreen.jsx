@@ -1,9 +1,11 @@
 import React, { useState } from "react";
+import { useTypingOnTouch } from "../lib/useTypingOnTouch.js";
 import { todayStr } from "../lib/format.js";
 import { TopBar, DatePickerBox } from "./primitives.jsx";
 
 /** 編輯專案：獨立畫面。設定群組成員都能改，刪除只有管理者能做。 */
 export function ProjectEditScreen({ project, expenseCount, canDelete, onBack, onSave, onDeleteProject }) {
+  const typing = useTypingOnTouch(); // 手機打字時底部按鈕列不要黏在鍵盤上方
   const [pname, setPname] = useState(project.name);
   const [pdesc, setPdesc] = useState(project.description || "");
   const [pdecimals, setPdecimals] = useState(project.settlementDecimals ?? 0);
@@ -69,7 +71,7 @@ export function ProjectEditScreen({ project, expenseCount, canDelete, onBack, on
         </div>
       )}
 
-      <div className="form-actions">
+      <div className={"form-actions" + (typing ? " form-actions-typing" : "")}>
         <div className="row-form">
           <button className="btn-ghost" onClick={onBack}>取消</button>
           <button
